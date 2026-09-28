@@ -70,7 +70,7 @@ app.innerHTML = `
     <div class="controls-hint"><span class="key">W</span><span class="key">A</span><span class="key">S</span><span class="key">D</span><span class="or">or</span> arrow keys to move</div>
     <div class="inventory" id="inventory"><span class="bag-icon">${icon('bag')}</span><div><p class="inventory-label">Your basket</p><p class="inventory-value" id="inventory-value">0 <small>/ 18</small></p><div class="inventory-bar"><span id="inventory-fill"></span></div></div></div>
     <div class="objective"><div class="objective-steps"><span id="step-harvest" class="active">Harvest</span>${icon('arrow')}<span id="step-bake">Bake</span>${icon('arrow')}<span id="step-serve">Serve</span></div><p class="objective-title" id="objective-title"></p><p class="objective-detail" id="objective-detail"></p></div>
-    <button class="upgrade-button" id="upgrades">${icon('upgrade')}<span><strong>Little upgrades</strong><small>Make room to grow</small></span><i class="upgrade-dot"></i></button>
+    <button class="upgrade-button" id="upgrades" aria-label="Little upgrades" title="Little upgrades">${icon('upgrade')}<span><strong>Little upgrades</strong><small>Make room to grow</small></span><i class="upgrade-dot"></i></button>
     <div class="joystick" id="joystick" role="group" aria-label="Touch movement joystick"><div class="joystick-knob" id="joystick-knob"></div></div>
   </div>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
@@ -204,7 +204,7 @@ window.addEventListener('keydown', event => {
   }
 });
 window.addEventListener('keyup', event => keys.delete(event.key.toLowerCase()));
-window.addEventListener('blur', () => { releaseMovement(); if (started && !dialog.open) pause(); });
+window.addEventListener('blur', releaseMovement);
 document.addEventListener('visibilitychange', () => { if (document.hidden) { releaseMovement(); save(); if (started && !dialog.open) pause(); } });
 window.addEventListener('pagehide', save);
 const joystick = $('joystick');
@@ -258,7 +258,7 @@ function positionLabels() {
   labels.forEach(label => {
     const p = world.project(label.point, label.y), el = $(label.id);
     el.style.left = `${p.x}px`; el.style.top = `${p.y}px`;
-    el.style.visibility = p.x < 55 || p.x > width - 55 || p.y < 95 || p.y > height - (width < 760 ? 260 : 140) ? 'hidden' : 'visible';
+    el.style.visibility = p.x < 55 || p.x > width - 55 || p.y < (width < 760 ? 132 : 95) || p.y > height - (width < 760 ? 150 : 140) ? 'hidden' : 'visible';
   });
   const p = world.project(game.state.position, 2.25 + Math.min(game.load, 18) * .11);
   $('player-badge').style.left = `${p.x}px`; $('player-badge').style.top = `${p.y}px`;

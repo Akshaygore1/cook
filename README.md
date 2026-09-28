@@ -13,22 +13,18 @@ npm run dev
 
 Open the local address printed by Vite. To try it on a phone, connect the phone to the same Wi-Fi and open the network address printed by Vite. The development server runs on all network interfaces.
 
-The published game is at [akshaygore1.github.io/cook](https://akshaygore1.github.io/cook/). Pushing to `main` runs the Pages workflow, which tests the game, builds it with the `/cook/` asset path, and publishes the generated `dist/` directory. The repository's Pages source must be **GitHub Actions**.
+The published game is at [akshaygore1.github.io/cook](https://akshaygore1.github.io/cook/). Pushing to `main` runs the Pages workflow, which builds the game with the `/cook/` asset path and publishes the generated `dist/` directory. The repository's Pages source must be **GitHub Actions**.
 
 ```sh
 npm run build       # Type-check and produce dist/
 npm run preview     # Preview the production build
-npm test            # Simulation and navigation tests
-npm run test:e2e     # Desktop and emulated phone browser tests
 ```
-
-For browser tests, install Chromium once with `npx playwright install chromium` if it is not already available. The tests start the development server when needed.
 
 ## Play
 
 - **WASD / arrow keys:** move relative to the screen.
 - **Phone joystick:** drag to move.
-- **Escape / pause button:** pause; the game also pauses when the tab loses focus.
+- **Escape / pause button:** pause; the game also pauses when the tab is hidden or switched away.
 
 Walk into wheat to harvest it automatically. Carry it to the golden pad next to the oven. Three wheat make one pizza. Pick up baked pizzas at the green pad, then serve them at the striped counter for $12 each. Spend coins on basket, oven, and movement upgrades. Serve ten pizzas to reach the first milestone, then keep playing.
 
@@ -40,7 +36,6 @@ Wheat regrows after 14 seconds. The kitchen holds 72 wheat and 24 prepared pizza
 - `src/world.ts`: Three.js scene, procedural models, camera, effects.
 - `src/main.ts`: interface, input, audio, persistence, animation loop.
 - `src/style.css`: responsive interface and self-hosted fonts.
-- `tests/`: simulation, navigation, desktop, and phone-emulation checks.
 - `DESIGN.md`: the first playable's scope and visual direction.
 
 Built with TypeScript, Three.js, and Vite. Requires WebGL. This is a local single-player prototype, with no accounts, server, multiplayer, ads, or in-app purchases.
