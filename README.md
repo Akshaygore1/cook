@@ -13,6 +13,8 @@ npm run dev
 
 Open the local address printed by Vite. To try it on a phone, connect the phone to the same Wi-Fi and open the network address printed by Vite. The development server runs on all network interfaces.
 
+The published game is at [akshaygore1.github.io/cook](https://akshaygore1.github.io/cook/). Pushing to `main` runs the Pages workflow, which tests the game, builds it with the `/cook/` asset path, and publishes the generated `dist/` directory. The repository's Pages source must be **GitHub Actions**.
+
 ```sh
 npm run build       # Type-check and produce dist/
 npm run preview     # Preview the production build
