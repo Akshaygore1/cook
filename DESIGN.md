@@ -24,6 +24,6 @@ Interaction thesis: a camera transition from the opening diorama into play; spri
 
 ## Controls and verification
 
-Keyboard movement with WASD or arrow keys; click or tap to walk; touch joystick on phones. Proximity triggers harvesting, unloading, pickup, and selling automatically. Pause and sound controls remain accessible.
+Keyboard movement with WASD or arrow keys; touch joystick on phones. Proximity triggers harvesting, unloading, pickup, and selling automatically. Pause and sound controls remain accessible.
 
 Verify a complete harvest → unload → bake → collect → sell cycle, insufficient-funds handling, upgrades, save/load, pause, and desktop/mobile layouts. No copied game assets are needed.

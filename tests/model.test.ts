@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Game, readSave, STATIONS, OBSTACLES } from '../src/model.ts';
-import { findPath } from '../src/navigation.ts';
+import { Game, readSave, STATIONS } from '../src/model.ts';
 
 function advance(game: Game, seconds: number) {
   for (let i = 0; i < Math.ceil(seconds / .05); i++) game.step(.05);
@@ -113,22 +112,4 @@ test('keyboard movement cannot pass through kitchen equipment or leave the islan
   game.state.position = { x: 0, z: 0 };
   for (let i = 0; i < 1000; i++) game.step(.05, { x: 1, z: 1 });
   assert.ok(game.state.position.x <= 12.1 && game.state.position.z <= 8.1);
-});
-
-test('tap routes go around equipment and remain reachable by the player', () => {
-  const game = new Game();
-  const route = findPath({ x: 0, z: -7.3 }, { x: 8, z: -1 });
-  assert.ok(route.length > 10);
-  for (const p of route) {
-    assert.ok(!OBSTACLES.some(b => p.x > b.left - .32 && p.x < b.right + .32 && p.z > b.back - .32 && p.z < b.front + .32));
-  }
-  game.state.position = { x: 0, z: -7.3 };
-  for (const target of route) {
-    for (let i = 0; i < 80; i++) {
-      const d = Math.hypot(target.x - game.state.position.x, target.z - game.state.position.z);
-      if (d < .05) break;
-      game.step(.02, { x: (target.x - game.state.position.x) / Math.max(d, .09), z: (target.z - game.state.position.z) / Math.max(d, .09) });
-    }
-    assert.ok(Math.hypot(target.x - game.state.position.x, target.z - game.state.position.z) < .1);
-  }
 });

@@ -27,7 +27,6 @@ For browser tests, install Chromium once with `npx playwright install chromium` 
 ## Play
 
 - **WASD / arrow keys:** move relative to the screen.
-- **Click / tap the ground:** walk there, navigating around kitchen equipment.
 - **Phone joystick:** drag to move.
 - **Escape / pause button:** pause; the game also pauses when the tab loses focus.
 
@@ -38,7 +37,6 @@ Wheat regrows after 14 seconds. The kitchen holds 72 wheat and 24 prepared pizza
 ## Project layout
 
 - `src/model.ts`: simulation, inventory, baking, economy, save validation.
-- `src/navigation.ts`: collision-aware A* routes for tap-to-walk.
 - `src/world.ts`: Three.js scene, procedural models, camera, effects.
 - `src/main.ts`: interface, input, audio, persistence, animation loop.
 - `src/style.css`: responsive interface and self-hosted fonts.

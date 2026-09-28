@@ -1,6 +1,5 @@
 import './style.css';
-import { Game, readSave, STATIONS, distance, type Upgrade, type Point } from './model';
-import { findPath } from './navigation';
+import { Game, readSave, STATIONS, type Upgrade, type Point } from './model';
 import { World } from './world';
 
 const icons: Record<string, string> = {
@@ -30,7 +29,6 @@ const saved = readSave(getStored(SAVE_KEY));
 const game = new Game(saved);
 let soundEnabled = getStored('dough-sound') === 'true';
 let started = false;
-let route: Point[] = [];
 let uiClock = 0, saveClock = 0, toastTimer = 0;
 let pendingMilestone = false;
 const keys = new Set<string>();
@@ -38,7 +36,7 @@ const stick = { x: 0, y: 0, pointer: -1 };
 let audioContext: AudioContext | undefined;
 
 app.innerHTML = `
-  <canvas id="world" tabindex="0" aria-label="Dough and Go game world. Move with WASD, arrow keys, or click to walk."></canvas>
+  <canvas id="world" tabindex="0" aria-label="Dough and Go game world. Move with WASD, arrow keys, or the touch joystick."></canvas>
   <div class="vignette"></div>
   <header class="topbar">
     <div class="brand"><span class="brand-mark">${icon('pizza')}</span><span class="brand-name">dough & go</span></div>
@@ -68,8 +66,8 @@ app.innerHTML = `
       <div class="station-label" id="label-counter"><strong>Serve here · $12</strong></div>
       <div class="player-badge" id="player-badge" hidden></div>
     </div>
-    <button class="edge-guide" id="edge-guide" hidden><span id="edge-guide-name">Kitchen</span>${icon('arrow')}</button>
-    <div class="controls-hint"><span class="key">W</span><span class="key">A</span><span class="key">S</span><span class="key">D</span><span class="or">or</span> click to walk</div>
+    <div class="edge-guide" id="edge-guide" hidden><span id="edge-guide-name">Kitchen</span>${icon('arrow')}</div>
+    <div class="controls-hint"><span class="key">W</span><span class="key">A</span><span class="key">S</span><span class="key">D</span><span class="or">or</span> arrow keys to move</div>
     <div class="inventory" id="inventory"><span class="bag-icon">${icon('bag')}</span><div><p class="inventory-label">Your basket</p><p class="inventory-value" id="inventory-value">0 <small>/ 18</small></p><div class="inventory-bar"><span id="inventory-fill"></span></div></div></div>
     <div class="objective"><div class="objective-steps"><span id="step-harvest" class="active">Harvest</span>${icon('arrow')}<span id="step-bake">Bake</span>${icon('arrow')}<span id="step-serve">Serve</span></div><p class="objective-title" id="objective-title"></p><p class="objective-detail" id="objective-detail"></p></div>
     <button class="upgrade-button" id="upgrades">${icon('upgrade')}<span><strong>Little upgrades</strong><small>Make room to grow</small></span><i class="upgrade-dot"></i></button>
@@ -132,7 +130,7 @@ function start() {
 }
 $('play').addEventListener('click', start);
 
-function releaseMovement() { keys.clear(); route = []; world.markTarget(null); stick.x = stick.y = 0; stick.pointer = -1; $('joystick-knob').style.transform = ''; }
+function releaseMovement() { keys.clear(); stick.x = stick.y = 0; stick.pointer = -1; $('joystick-knob').style.transform = ''; }
 function openDialog(content: string, mode: string) {
   releaseMovement(); game.moving = false;
   dialog.dataset.mode = mode; dialog.innerHTML = content;
@@ -148,7 +146,7 @@ function howTo() {
       ['Pick up', 'Wait at the green pad to collect fresh pizzas.'],
       ['Serve & grow', 'Walk to the striped counter. Each pizza earns $12 for upgrades.'],
     ].map(([title, copy], i) => `<div class="how-step"><span class="step-number">${i + 1}</span><div><h3>${title}</h3><p>${copy}</p></div></div>`).join('')}
-    <div class="dialog-bottom"><strong>WASD / Arrow keys</strong> to move. <strong>Click or tap</strong> the ground to walk there. On phones, use the joystick. <strong>Esc</strong> pauses the game.<br>Progress saves automatically on this browser.</div>
+    <div class="dialog-bottom"><strong>WASD / Arrow keys</strong> to move. On phones, drag the <strong>joystick</strong>. <strong>Esc</strong> pauses the game.<br>Progress saves automatically on this browser.</div>
     <button class="primary-button dialog-wide" data-action="${started ? 'close' : 'start'}">${started ? 'Back to the kitchen' : 'Let’s make pizza'} ${icon('play')}</button>`, 'help');
 }
 function pause() {
@@ -202,25 +200,13 @@ window.addEventListener('keydown', event => {
   }
   if (!started || dialog.open) return;
   if (['w', 'a', 's', 'd', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key.length === 1 ? event.key.toLowerCase() : event.key)) {
-    event.preventDefault(); keys.add(event.key.toLowerCase()); route = []; world.markTarget(null);
+    event.preventDefault(); keys.add(event.key.toLowerCase());
   }
 });
 window.addEventListener('keyup', event => keys.delete(event.key.toLowerCase()));
 window.addEventListener('blur', () => { releaseMovement(); if (started && !dialog.open) pause(); });
 document.addEventListener('visibilitychange', () => { if (document.hidden) { releaseMovement(); save(); if (started && !dialog.open) pause(); } });
 window.addEventListener('pagehide', save);
-canvas.addEventListener('pointerdown', event => {
-  if (!started || dialog.open || event.button > 0) return;
-  unlockAudio();
-  const point = world.groundPoint(event.clientX, event.clientY);
-  if (!point) return;
-  route = findPath(game.state.position, point); world.markTarget(route.at(-1) ?? null);
-});
-$('edge-guide').addEventListener('click', () => {
-  if (!started || dialog.open) return;
-  route = findPath(game.state.position, game.objective.target);
-  world.markTarget(route.at(-1) ?? null);
-});
 const joystick = $('joystick');
 function moveStick(event: PointerEvent) {
   if (stick.pointer !== event.pointerId) return;
@@ -229,7 +215,7 @@ function moveStick(event: PointerEvent) {
   stick.x = dx * scale / max; stick.y = dy * scale / max;
   $('joystick-knob').style.transform = `translate(${dx * scale}px,${dy * scale}px)`;
 }
-joystick.addEventListener('pointerdown', event => { if (dialog.open || stick.pointer !== -1) return; event.preventDefault(); stick.pointer = event.pointerId; joystick.setPointerCapture(event.pointerId); route = []; world.markTarget(null); unlockAudio(); moveStick(event); });
+joystick.addEventListener('pointerdown', event => { if (dialog.open || stick.pointer !== -1) return; event.preventDefault(); stick.pointer = event.pointerId; joystick.setPointerCapture(event.pointerId); unlockAudio(); moveStick(event); });
 joystick.addEventListener('pointermove', moveStick);
 function releaseStick(event: PointerEvent) { if (stick.pointer !== event.pointerId) return; stick.pointer = -1; stick.x = stick.y = 0; $('joystick-knob').style.transform = ''; }
 joystick.addEventListener('pointerup', releaseStick); joystick.addEventListener('pointercancel', releaseStick); joystick.addEventListener('lostpointercapture', releaseStick);
@@ -284,7 +270,6 @@ function positionLabels() {
     guide.style.top = `${Math.max(130, Math.min(bottom, destination.y))}px`;
     const name = ['Wheat', 'Kitchen', 'Pizzas', 'Counter'][game.objective.step];
     $('edge-guide-name').textContent = name;
-    guide.setAttribute('aria-label', `Walk to ${name.toLowerCase()}`);
     guide.querySelector('svg')!.style.transform = `rotate(${Math.atan2(destination.y - height / 2, destination.x - width / 2)}rad)`;
   }
 }
@@ -298,14 +283,6 @@ function frame(now: number) {
     const x = Number(keys.has('d') || keys.has('arrowright')) - Number(keys.has('a') || keys.has('arrowleft')) + stick.x;
     const y = Number(keys.has('s') || keys.has('arrowdown')) - Number(keys.has('w') || keys.has('arrowup')) + stick.y;
     if (Math.hypot(x, y) > .05) direction = world.screenDirection(x, y);
-    else if (route.length) {
-      while (route.length && distance(game.state.position, route[0]) < .16) route.shift();
-      if (route.length) {
-        const next = route[0], d = distance(game.state.position, next);
-        const magnitude = Math.min(1, d / (game.speed * Math.max(dt, .001)));
-        direction = { x: (next.x - game.state.position.x) / d * magnitude, z: (next.z - game.state.position.z) / d * magnitude };
-      } else world.markTarget(null);
-    }
     game.step(dt, direction); world.face(direction, dt);
     for (const event of game.events) {
       world.event(event);

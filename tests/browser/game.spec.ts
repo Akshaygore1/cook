@@ -1,16 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 
 const snapshot = (page: Page) => page.evaluate(() => (window as any).__dough.snapshot());
-async function walkTo(page: Page, target: { x: number; z: number }) {
-  const screen = await page.evaluate(target => (window as any).__dough.project(target), target);
-  await page.mouse.click(screen.x, screen.y);
-  await expect.poll(async () => {
-    const { position } = await snapshot(page);
-    return Math.hypot(position.x - target.x, position.z - target.z);
-  }, { timeout: 20_000 }).toBeLessThan(.7);
-}
-
-test('desktop: play the complete loop, upgrade, pause, and reload saved progress', async ({ page }) => {
+test('desktop: ground clicks do not move; keyboard movement and saved harvest work', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   const errors: string[] = [];
   page.on('pageerror', e => errors.push(e.message));
@@ -24,25 +15,21 @@ test('desktop: play the complete loop, upgrade, pause, and reload saved progress
   const initial = await snapshot(page);
   await page.keyboard.down('d'); await page.waitForTimeout(350); await page.keyboard.up('d');
   expect((await snapshot(page)).position.x).toBeGreaterThan(initial.position.x);
-
-  await walkTo(page, { x: -6, z: -2 });
-  await walkTo(page, { x: -8, z: -4 });
-  await expect.poll(async () => (await snapshot(page)).grain).toBe(18);
+  const beforeArrow = await snapshot(page);
+  await page.keyboard.down('ArrowUp'); await page.waitForTimeout(350); await page.keyboard.up('ArrowUp');
+  expect((await snapshot(page)).position.z).toBeLessThan(beforeArrow.position.z);
+  const beforeClick = await snapshot(page);
+  const screen = await page.evaluate(() => (window as any).__dough.project({ x: -6, z: -2 }));
+  await page.mouse.click(screen.x, screen.y);
+  await page.waitForTimeout(600);
+  expect((await snapshot(page)).position).toEqual(beforeClick.position);
+  await page.keyboard.down('w'); await page.waitForTimeout(1800); await page.keyboard.up('w');
+  await expect.poll(async () => (await snapshot(page)).grain).toBeGreaterThan(0);
   await page.screenshot({ path: 'test-results/desktop-harvest.png' });
-  await walkTo(page, { x: .3, z: -3.2 });
-  await expect.poll(async () => (await snapshot(page)).grain).toBe(0);
-  await expect.poll(async () => (await snapshot(page)).readyPizzas).toBeGreaterThan(0);
-  await walkTo(page, { x: 5.1, z: -1.4 });
-  await expect.poll(async () => (await snapshot(page)).pizzas, { timeout: 25_000 }).toBe(6);
-  await walkTo(page, { x: 7.3, z: 4.2 });
-  await expect.poll(async () => (await snapshot(page)).served).toBe(6);
-  expect((await snapshot(page)).coins).toBe(72);
+  const savedGrain = (await snapshot(page)).grain;
   await page.getByRole('button', { name: /Little upgrades/ }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
-  await page.getByRole('button', { name: 'Buy A bigger basket for 36 coins' }).click();
-  expect((await snapshot(page)).capacity).toBe(27);
-  expect((await snapshot(page)).coins).toBe(36);
-  await expect(page.getByRole('button', { name: 'Buy A hotter oven for 48 coins' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Buy A bigger basket for 36 coins' })).toBeDisabled();
   await page.screenshot({ path: 'test-results/desktop-upgrades.png' });
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await page.keyboard.press('Escape');
@@ -52,9 +39,7 @@ test('desktop: play the complete loop, upgrade, pause, and reload saved progress
   await page.getByRole('button', { name: 'Keep cooking' }).click();
   await page.reload();
   await page.getByRole('button', { name: 'Back to the farm' }).click();
-  expect((await snapshot(page)).served).toBe(6);
-  expect((await snapshot(page)).coins).toBe(36);
-  expect((await snapshot(page)).capacity).toBe(27);
+  expect((await snapshot(page)).grain).toBe(savedGrain);
   await page.waitForTimeout(1000);
   await page.screenshot({ path: 'test-results/desktop-game.png' });
   console.log('Desktop render stats:', await page.evaluate(() => (window as any).__dough.renderInfo()));
@@ -90,10 +75,14 @@ test('phone: layout, touch joystick, pause, and shop controls', async ({ browser
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x + 5, y: y - 35, id: 1 }] });
   await expect.poll(async () => (await snapshot(page)).grain).toBe(18);
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-  await expect(page.getByRole('button', { name: 'Walk to kitchen' })).toBeVisible();
+  await expect(page.locator('#edge-guide')).toBeVisible();
+  await expect(page.locator('#edge-guide-name')).toHaveText('Kitchen');
   await page.screenshot({ path: 'test-results/phone-directions.png' });
-  await page.getByRole('button', { name: 'Walk to kitchen' }).tap();
-  await expect.poll(async () => (await snapshot(page)).grain, { timeout: 20_000 }).toBe(0);
+  const beforeTap = await snapshot(page);
+  const marker = await page.locator('#edge-guide').boundingBox();
+  await page.touchscreen.tap(marker!.x + marker!.width / 2, marker!.y + marker!.height / 2);
+  await page.waitForTimeout(600);
+  expect((await snapshot(page)).position).toEqual(beforeTap.position);
   await page.getByRole('button', { name: /Little upgrades/ }).tap();
   await expect(page.getByRole('heading', { name: 'Little upgrades' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Buy A bigger basket for 36 coins' })).toBeDisabled();

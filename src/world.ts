@@ -93,11 +93,8 @@ export class World {
   private cropStalks: THREE.InstancedMesh;
   private cropHeads: THREE.InstancedMesh;
   private matrix = new THREE.Object3D();
-  private raycaster = new THREE.Raycaster();
-  private groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   private particles: Particle[] = [];
   private flying: FlyingItem[] = [];
-  private targetRing: THREE.Mesh;
   private deliveryRing: THREE.Mesh;
   private pickupRing: THREE.Mesh;
   private counterRing: THREE.Mesh;
@@ -148,8 +145,6 @@ export class World {
     this.deliveryRing = this.pad(STATIONS.delivery, C.gold);
     this.pickupRing = this.pad(STATIONS.pickup, 0x81b991);
     this.counterRing = this.pad(STATIONS.counter, 0xe88b6a);
-    this.targetRing = new THREE.Mesh(new THREE.RingGeometry(.24, .32, 32), new THREE.MeshBasicMaterial({ color: C.cream, transparent: true, opacity: .85, side: THREE.DoubleSide }));
-    this.targetRing.rotation.x = -Math.PI / 2; this.targetRing.visible = false; this.scene.add(this.targetRing);
     this.goalArrow = group(this.scene);
     const arrowShape = new THREE.Shape();
     arrowShape.moveTo(-.26, .4); arrowShape.lineTo(.26, .4); arrowShape.lineTo(.26, 0); arrowShape.lineTo(.48, 0); arrowShape.lineTo(0, -.48); arrowShape.lineTo(-.48, 0); arrowShape.lineTo(-.26, 0); arrowShape.closePath();
@@ -359,21 +354,9 @@ export class World {
     return { x: (pos.x * .5 + .5) * this.canvas.clientWidth, y: (-pos.y * .5 + .5) * this.canvas.clientHeight };
   }
 
-  groundPoint(clientX: number, clientY: number) {
-    const rect = this.canvas.getBoundingClientRect();
-    this.raycaster.setFromCamera(new THREE.Vector2((clientX - rect.left) / rect.width * 2 - 1, -(clientY - rect.top) / rect.height * 2 + 1), this.camera);
-    const point = new THREE.Vector3();
-    return this.raycaster.ray.intersectPlane(this.groundPlane, point) ? { x: point.x, z: point.z } : null;
-  }
-
   screenDirection(x: number, y: number): Point {
     const angle = Math.atan2(this.cameraOffset.x, this.cameraOffset.z);
     return { x: Math.cos(angle) * x + Math.sin(angle) * y, z: -Math.sin(angle) * x + Math.cos(angle) * y };
-  }
-
-  markTarget(point: Point | null) {
-    this.targetRing.visible = !!point;
-    if (point) this.targetRing.position.set(point.x, .12, point.z);
   }
 
   event(event: GameEvent) {
