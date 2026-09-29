@@ -27,11 +27,32 @@ dialog{position:fixed;max-width:calc(100vw - 30px);max-height:calc(100svh - 30px
 
 /* Expansion actions stay on the screen while their signs belong to the world. */
 .purchase-prompt{position:absolute;left:50%;bottom:156px;transform:translateX(-50%);display:flex;align-items:center;gap:18px;width:390px;max-width:calc(100vw - 32px);padding:14px 16px;border-radius:14px;background:var(--paper);box-shadow:0 3px 8px #34452a24;pointer-events:auto}
-.purchase-prompt[hidden],.compliment[hidden],.player-badge[hidden]{display:none}
+.purchase-prompt[hidden],.compliment[hidden],.player-badge[hidden],.customer-bubble[hidden],.customer-order-tag[hidden],.patience-track[hidden]{display:none}
 .purchase-prompt strong{font-size:14px}.purchase-prompt p{font-size:11px;line-height:1.4;color:#596951;margin-top:4px}.purchase-prompt>div{flex:1;min-width:0}.purchase-prompt .buy-button{white-space:nowrap;min-height:44px;flex-shrink:0}.buy-button:not(:disabled):hover{background:#2d6654}.buy-button:disabled{color:#66705a}
 .purchase-label strong{color:#355e42;background:#fff4ce}.purchase-label small{background:#fffaf0;color:#53664b}
 .compliment{position:absolute;left:0;top:0;width:160px;padding:8px 10px;border-radius:12px;background:#fffaf0;color:#39634d;font-size:11px;font-weight:700;line-height:16px;text-align:center;will-change:transform;box-shadow:0 2px 4px #34452a14}
 .compliment::after{content:'';position:absolute;left:73px;bottom:-5px;border-left:6px solid transparent;border-right:6px solid transparent;border-top:6px solid #fffaf0}
+.customer-bubble{position:absolute;left:0;top:0;display:flex;flex-direction:column;align-items:center;gap:3px;pointer-events:none;will-change:transform;transform:translate(-50%,-100%);z-index:3}
+.customer-bubble .compliment{position:relative;left:auto;top:auto;transform:none;margin-bottom:6px}
+.compliment.angry{color:#c43b22;border:1.5px solid #e65337;background:#fff5f2}
+.compliment.angry::after{border-top-color:#e65337}
+.rush-badge{display:inline-flex;align-items:center;gap:5px;background:#f3e3b8;color:#87581b;border-radius:12px;padding:2px 8px;font-size:10px;font-weight:700;letter-spacing:0.4px;margin-bottom:3px;box-shadow:0 1px 3px #34452a12}
+.rush-badge svg{width:12px;height:12px;color:var(--tomato)}
+.customer-order-tag{background:#fffaf0f2;border-radius:9px;padding:2px 7px;display:inline-flex;align-items:center;gap:3px;box-shadow:0 2px 5px #34452a1c;font-family:Fredoka,sans-serif;font-size:12px;font-weight:600;color:#293b32;border:1px solid #ebdeca}
+.customer-order-tag .order-icon svg{width:14px;height:14px;color:var(--tomato)}
+.patience-track{width:44px;height:5px;background:#dedfd2;border-radius:3px;overflow:hidden;box-shadow:inset 0 1px 2px #0000001f}
+.patience-bar{height:100%;border-radius:3px;transition:width 0.12s linear,background-color 0.25s}
+.patience-bar.green{background:#4ca469}
+.patience-bar.yellow{background:#dfb03b}
+.patience-bar.red{background:var(--tomato);animation:urgent-blink 0.4s infinite alternate}
+.sale-pop.tip-pop{color:#d4911d;font-size:16px;font-weight:700;text-shadow:0 1px #fff6e3}
+.upgrade-button.recommended{animation:upgrade-pulse 1.4s infinite alternate}
+.upgrade-button.urgent-pulse{animation:urgent-shake 0.4s 4 ease-in-out}
+.upgrade-hint{display:block;font-size:10px;color:#879077;margin-top:2px;font-style:italic}
+@keyframes urgent-blink{from{opacity:1}to{opacity:0.35}}
+@keyframes upgrade-pulse{from{box-shadow:0 4px 0 #2d6654}to{box-shadow:0 4px 14px #e55e40,0 4px 0 #2d6654;transform:scale(1.03)}}
+@keyframes urgent-shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
 .objective{min-height:96px}.inventory{min-height:89px}.inventory-value,.money{font-variant-numeric:tabular-nums}.station-label .bake-track{flex-shrink:0}
-@media(max-width:760px){.purchase-prompt{bottom:198px;width:320px;padding:11px 13px;gap:10px}.purchase-prompt strong{font-size:13px}.purchase-prompt p{font-size:10px}.purchase-prompt .buy-button{font-size:11px}.objective{min-height:56px}.inventory{min-height:56px}.station-label strong{width:148px}.station-label small{width:140px}.compliment{font-size:10px;width:160px}.day-progress strong span{display:none}.day-progress p{max-width:110px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+@media(max-width:760px){.purchase-prompt{bottom:198px;width:320px;padding:11px 13px;gap:10px}.purchase-prompt strong{font-size:13px}.purchase-prompt p{font-size:10px}.purchase-prompt .buy-button{font-size:11px}.objective{min-height:56px}.inventory{min-height:56px}.station-label strong{width:148px}.station-label small{width:140px}.compliment{font-size:10px;width:160px}.day-progress strong span{display:none}.day-progress p{max-width:110px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.rush-badge{font-size:9px;padding:2px 6px;margin-bottom:2px}.customer-order-tag{font-size:11px;padding:1px 5px}.patience-track{width:36px;height:4px}}
 @media(max-height:520px){.purchase-prompt{bottom:108px;padding:9px 12px;width:320px}.purchase-prompt p{font-size:10px}.objective{min-height:62px}.inventory{min-height:56px}}
+

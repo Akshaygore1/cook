@@ -19,6 +19,7 @@ const icons: Record<string, string> = {
   keyboard: '<rect x="2" y="5" width="20" height="14" rx="3"/><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 12h.01M10 12h.01M14 12h.01M18 12h.01M7 16h10"/>',
   touch: '<path d="M8 13V6a2 2 0 0 1 4 0v6-2a2 2 0 0 1 4 0v2-1a2 2 0 0 1 4 0v5c0 4-3 6-6 6-3 0-4-1-6-3l-4-5a2 2 0 0 1 3-2l1 1Z"/>',
   help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 8.5a2.5 2.5 0 0 1 5 0c0 2-2.5 2-2.5 4M12 16h.01"/>',
+  bolt: '<path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" fill="currentColor"/>',
 };
 const icon = (name: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name] ?? ''}</svg>`;
 const app = document.querySelector<HTMLDivElement>('#app')!;
@@ -58,21 +59,37 @@ app.innerHTML = `
   <footer class="intro-footer"><span>GROW A LITTLE. MAKE A LOT.</span><button id="how-to">${icon('help')} How to play</button></footer>
   <div class="hud" aria-label="Game status">
     <div class="money"><span class="coin-icon">$</span><span id="coins">0</span></div>
-    <div class="day-progress"><p id="goal-label">Your first little rush</p><strong><b id="served">0</b> <span id="served-label">/ 10 pizzas served</span></strong><div class="day-track">${'<i></i>'.repeat(10)}</div></div>
+    <div class="day-progress">
+      <div class="rush-badge" id="rush-badge"><span class="rush-icon">${icon('bolt')}</span><span id="rush-badge-text">Rush 1: Warmup</span></div>
+      <p id="goal-label">Your first little rush</p>
+      <strong><b id="served">0</b> <span id="served-label">/ 10 pizzas served</span></strong>
+      <div class="day-track">${'<i></i>'.repeat(10)}</div>
+    </div>
     <div class="world-labels">
       <div class="station-label" id="label-field"><strong>Wheat field</strong></div>
       <div class="station-label" id="label-delivery"><strong>Drop wheat</strong><small id="oven-stock">3 wheat = 1 pizza</small></div>
       <div class="station-label" id="label-pickup"><strong id="pizza-stock">Pizza pickup</strong><small id="bake-status">Oven needs wheat</small><div class="bake-track"><span id="bake-fill"></span></div></div>
       <div class="station-label" id="label-counter"><strong>Serve here · $12</strong><small id="queue-status">Customers on their way</small></div>
       ${(['server', 'farm', 'farmer'] as Purchase[]).map(key => `<div class="station-label purchase-label" id="label-${key}"><strong>${key === 'farm' ? 'Wheat farm' : key === 'server' ? 'Pizza worker' : 'Farm worker'} · $${PURCHASES[key].price}</strong><small>Walk here to ${key === 'farm' ? 'buy' : 'hire'}</small></div>`).join('')}
-      ${game.customers.map(customer => `<div class="compliment" id="compliment-${customer.id}" hidden></div>`).join('')}
+      ${game.customers.map(customer => `
+        <div class="customer-bubble" id="customer-bubble-${customer.id}" hidden>
+          <div class="compliment" id="compliment-${customer.id}" hidden></div>
+          <div class="customer-order-tag" id="order-tag-${customer.id}">
+            <span class="order-icon">${icon('pizza')}</span>
+            <span class="order-count" id="order-count-${customer.id}">1</span>
+          </div>
+          <div class="patience-track" id="patience-track-${customer.id}">
+            <div class="patience-bar" id="patience-bar-${customer.id}"></div>
+          </div>
+        </div>
+      `).join('')}
       <div class="player-badge" id="player-badge" hidden></div>
     </div>
     <div class="edge-guide" id="edge-guide" hidden><span id="edge-guide-name">Kitchen</span>${icon('arrow')}</div>
     <div class="controls-hint"><span class="key">W</span><span class="key">A</span><span class="key">S</span><span class="key">D</span><span class="or">or</span> arrow keys to move</div>
     <div class="inventory" id="inventory"><span class="bag-icon">${icon('bag')}</span><div><p class="inventory-label">Your basket</p><p class="inventory-value" id="inventory-value">0 <small>/ 18</small></p><div class="inventory-bar"><span id="inventory-fill"></span></div></div></div>
     <div class="objective"><div class="objective-steps"><span id="step-harvest" class="active">Harvest</span>${icon('arrow')}<span id="step-bake">Bake</span>${icon('arrow')}<span id="step-serve">Serve</span></div><p class="objective-title" id="objective-title"></p><p class="objective-detail" id="objective-detail"></p></div>
-    <button class="upgrade-button" id="upgrades" aria-label="Little upgrades" title="Little upgrades">${icon('upgrade')}<span><strong>Little upgrades</strong><small>Make room to grow</small></span><i class="upgrade-dot"></i></button>
+    <button class="upgrade-button" id="upgrades" aria-label="Little upgrades" title="Little upgrades">${icon('upgrade')}<span><strong>Kitchen upgrades</strong><small id="upgrade-subtitle">Essential for the rush</small></span><i class="upgrade-dot"></i></button>
     <div class="purchase-prompt" id="purchase-prompt" hidden><div><strong id="purchase-title"></strong><p id="purchase-detail"></p></div><button id="purchase-button" class="buy-button" title="Press E or click to purchase"></button></div>
     <div class="joystick" id="joystick" role="group" aria-label="Touch movement joystick"><div class="joystick-knob" id="joystick-knob"></div></div>
   </div>
@@ -142,12 +159,13 @@ function openDialog(content: string, mode: string) {
 const dialogHeader = (title: string) => `<div class="dialog-top"><h2 id="dialog-title">${title}</h2><button class="icon-button" data-action="close" aria-label="Close">${icon('close')}</button></div>`;
 function howTo() {
   openDialog(`${dialogHeader('A recipe for a good time')}
-    <p class="dialog-intro">Everything happens as you walk. Just bring a little appetite.</p>
+    <p class="dialog-intro">Everything happens as you walk. Keep up with the hungry rush!</p>
     ${[
       ['Harvest', 'Walk into the wheat to fill your basket. It grows back after a little while.'],
       ['Bake', 'Stand on the golden pad by the oven. Three wheat make one pizza.'],
       ['Pick up', 'Wait at the green pad to collect fresh pizzas.'],
-      ['Serve & grow', 'Walk to the striped counter. Each pizza earns $12. Customers queue, enjoy their pizza, and leave.'],
+      ['Serve & Rush', 'Walk to the counter. Each pizza earns $12, plus +$4 Speed Tips for fast service! Watch patience meters before customers leave.'],
+      ['Kitchen Upgrades', 'As rushes intensify, customers arrive faster with bigger orders. Upgrade your oven, basket, and shoes to keep pace!'],
       ['Build your team', 'Visit the signs to hire a pizza worker ($96), buy a wheat farm ($180), and hire a farm worker ($144). Press E or tap Buy.'],
     ].map(([title, copy], i) => `<div class="how-step"><span class="step-number">${i + 1}</span><div><h3>${title}</h3><p>${copy}</p></div></div>`).join('')}
     <div class="dialog-bottom"><strong>WASD / Arrow keys</strong> to move. On phones, drag the <strong>joystick</strong>. <strong>Esc</strong> pauses the game.<br>Progress saves automatically on this browser.</div>
@@ -163,12 +181,28 @@ function pause() {
 }
 const upgradeNames: Record<Upgrade, string> = { basket: 'A bigger basket', oven: 'A hotter oven', shoes: 'Happy feet' };
 function shop() {
-  const details = { basket: `${game.capacity} → ${game.capacity + 9} carrying slots`, oven: `${game.bakeTime.toFixed(1)}s → ${[2.1, 1.5, 1, 1][game.state.levels.oven]}s per pizza`, shoes: `${game.state.levels.shoes ? 'Even quicker' : 'Quicker'} trips around the farm` };
+  const basketCaps = [18, 27, 38, 54, 72];
+  const ovenTimes = [2.8, 2.0, 1.4, 0.9, 0.6];
+  const shoeLabels = ['Base pace (4.5)', 'Brisk (5.2)', 'Swift (6.0)', 'Rapid (7.0)', 'Super Sprint (8.0)'];
+  const nextBasket = basketCaps[game.state.levels.basket + 1];
+  const nextOven = ovenTimes[game.state.levels.oven + 1];
+  const nextShoe = shoeLabels[game.state.levels.shoes + 1];
+
+  const details = {
+    basket: nextBasket ? `${game.capacity} → ${nextBasket} carrying slots` : `${game.capacity} slots (Maximum)`,
+    oven: nextOven ? `${game.bakeTime.toFixed(1)}s → ${nextOven.toFixed(1)}s per pizza` : `${game.bakeTime.toFixed(1)}s (Maximum)`,
+    shoes: nextShoe ? `${shoeLabels[game.state.levels.shoes]} → ${nextShoe}` : `Maximum speed`,
+  };
+  const hints = {
+    basket: 'Hold pizzas & wheat at once for big rushes',
+    oven: 'Bake fast before customer patience expires',
+    shoes: 'Dash quickly between fields and the counter',
+  };
   const rows = (['basket', 'oven', 'shoes'] as Upgrade[]).map(key => {
     const price = game.price(key), level = game.state.levels[key];
-    return `<div class="upgrade-row"><span class="row-icon">${icon({ basket: 'bag', oven: 'oven', shoes: 'shoe' }[key])}</span><div><h3>${upgradeNames[key]}</h3><p>${price === null ? 'As good as it gets!' : details[key]}</p><span class="levels" aria-label="Level ${level} of 3">${[0, 1, 2].map(i => `<i class="${i < level ? 'filled' : ''}"></i>`).join('')}</span></div><button class="buy-button" data-upgrade="${key}" aria-label="${price === null ? `${upgradeNames[key]} fully upgraded` : `Buy ${upgradeNames[key]} for ${price} coins`}" ${price === null || game.state.coins < price ? 'disabled' : ''}>${price === null ? 'MAX' : `${icon('coin')} ${price}`}</button></div>`;
+    return `<div class="upgrade-row"><span class="row-icon">${icon({ basket: 'bag', oven: 'oven', shoes: 'shoe' }[key])}</span><div><h3>${upgradeNames[key]}</h3><p>${price === null ? 'Fully upgraded!' : details[key]}</p><small class="upgrade-hint">${hints[key]}</small><span class="levels" aria-label="Level ${level} of 4">${[0, 1, 2, 3].map(i => `<i class="${i < level ? 'filled' : ''}"></i>`).join('')}</span></div><button class="buy-button" data-upgrade="${key}" aria-label="${price === null ? `${upgradeNames[key]} fully upgraded` : `Buy ${upgradeNames[key]} for ${price} coins`}" ${price === null || game.state.coins < price ? 'disabled' : ''}>${price === null ? 'MAX' : `${icon('coin')} ${price}`}</button></div>`;
   }).join('');
-  openDialog(`${dialogHeader('Little upgrades')}<p class="dialog-intro">A little reinvestment goes a long way.</p>${rows}<p class="shop-balance">You have <strong>$${game.state.coins}</strong> to grow with.</p>`, 'shop');
+  openDialog(`${dialogHeader('Kitchen Upgrades')}<p class="dialog-intro">Essential improvements to handle intensifying customer rushes!</p>${rows}<p class="shop-balance">You have <strong>$${game.state.coins}</strong> to grow with.</p>`, 'shop');
 }
 $('how-to').addEventListener('click', howTo);
 $('pause').addEventListener('click', () => dialog.open ? dialog.close() : pause());
@@ -242,10 +276,13 @@ $('purchase-button').addEventListener('click', buyNearby);
 let lastObjective = '';
 function updateUI() {
   const s = game.state;
+  const stage = game.rushStage;
   $('coins').textContent = s.coins.toLocaleString();
   $('served').textContent = String(s.served);
   $('served-label').textContent = s.served < 10 ? '/ 10 pizzas served' : 'happy customers';
   $('goal-label').textContent = s.served < 10 ? 'Your first little rush' : s.workers.server && s.workers.farmer ? 'A farm of your own' : 'Grow your little team';
+  $('rush-badge-text').textContent = `Rush ${stage.stage}: ${stage.badge}`;
+  $('rush-badge').title = `${stage.name} (Stage ${stage.stage}/5) · Up to ${stage.maxQueue} customers in queue`;
   document.querySelectorAll('.day-track i').forEach((dot, i) => dot.classList.toggle('done', i < s.served));
   const basketText = s.pizzas > 0 ? `${s.pizzas} pizza${s.pizzas === 1 ? '' : 's'}${s.grain ? ` · ${s.grain} wheat` : ''}` : `${s.grain} <small>/ ${game.capacity}</small>`;
   $('inventory-value').innerHTML = game.full ? `FULL <small>${game.load}/${game.capacity}</small>` : basketText;
@@ -260,7 +297,7 @@ function updateUI() {
   $('oven-stock').textContent = s.ovenWheat ? `${s.ovenWheat} wheat in kitchen` : '3 wheat = 1 pizza';
   $('pizza-stock').textContent = s.readyPizzas ? `${s.readyPizzas} pizza${s.readyPizzas === 1 ? '' : 's'} ready` : 'Pizza pickup';
   $('bake-status').textContent = s.readyPizzas >= 24 ? 'Collect to make room' : s.outputProgress > 0 ? 'Fresh out of the oven!' : s.ovenWheat >= 3 ? `Baking · ${Math.ceil((1 - s.bakeProgress) * game.bakeTime)}s` : s.readyPizzas ? 'Fresh & ready to go' : 'Oven needs wheat';
-  $('queue-status').textContent = game.waitingCustomers ? `${game.waitingCustomers} in the queue${s.workers.server ? ' · Worker on duty' : ''}` : 'More customers on their way';
+  $('queue-status').textContent = game.waitingCustomers ? `${game.waitingCustomers} in the queue (${stage.name})${s.workers.server ? ' · Worker on duty' : ''}` : 'More customers on their way';
   const key = game.nearbyPurchase;
   $('purchase-prompt').hidden = !key;
   if (key) {
@@ -271,7 +308,9 @@ function updateUI() {
     $<HTMLButtonElement>('purchase-button').disabled = !!reason;
     $('purchase-button').setAttribute('aria-label', `${purchase.title} for ${purchase.price} coins${reason ? `. ${reason}` : ''}`);
   }
+  const hasImpatient = game.customers.some(c => c.mode === 'waiting' && c.patience / c.maxPatience < 0.4);
   $('upgrades').classList.toggle('available', (['basket', 'oven', 'shoes'] as Upgrade[]).some(key => game.price(key) !== null && s.coins >= game.price(key)!));
+  $('upgrades').classList.toggle('recommended', hasImpatient || s.lost > 0);
   $('player-badge').hidden = !game.load;
   $('player-badge').textContent = game.full ? 'MAX!' : s.pizzas ? `${s.pizzas} pizza${s.pizzas === 1 ? '' : 's'}` : `${s.grain}/${game.capacity}`;
   $('player-badge').classList.toggle('full', game.full);
@@ -302,9 +341,39 @@ function positionLabels() {
   const p = world.project(game.state.position, 2.25 + Math.min(game.load, 18) * .11);
   anchor($('player-badge'), p);
   game.customers.forEach(customer => {
-    const el = $(`compliment-${customer.id}`);
-    el.hidden = customer.mode !== 'leaving' || customer.position.z >= 9;
-    if (!el.hidden) { el.textContent = customer.compliment; anchor(el, world.project(customer.position, 2.4)); }
+    const bubble = $(`customer-bubble-${customer.id}`);
+    if (!bubble) return;
+    const isVisible = customer.mode !== 'away';
+    bubble.hidden = !isVisible;
+    if (!isVisible) return;
+
+    anchor(bubble, world.project(customer.position, 2.35));
+
+    const orderTag = $(`order-tag-${customer.id}`);
+    const patienceTrack = $(`patience-track-${customer.id}`);
+    const complimentEl = $(`compliment-${customer.id}`);
+
+    if (customer.mode === 'leaving') {
+      orderTag.hidden = true;
+      patienceTrack.hidden = true;
+      complimentEl.hidden = customer.position.z >= 9;
+      complimentEl.textContent = customer.compliment;
+      complimentEl.classList.toggle('angry', customer.mood === 'angry');
+    } else {
+      complimentEl.hidden = true;
+      orderTag.hidden = false;
+      const countText = customer.neededPizzas > 1 ? `${customer.servedPizzas}/${customer.neededPizzas}` : '1';
+      $(`order-count-${customer.id}`).textContent = countText;
+
+      const showPatience = customer.mode === 'waiting';
+      patienceTrack.hidden = !showPatience;
+      if (showPatience) {
+        const ratio = Math.max(0, Math.min(1, customer.patience / customer.maxPatience));
+        const bar = $(`patience-bar-${customer.id}`);
+        bar.style.width = `${ratio * 100}%`;
+        bar.className = `patience-bar ${ratio > 0.5 ? 'green' : ratio > 0.2 ? 'yellow' : 'red'}`;
+      }
+    }
   });
   const destination = world.project(game.objective.target), bottom = height - 280;
   const outside = destination.x < 45 || destination.x > width - 45 || destination.y < 120 || destination.y > bottom;
@@ -333,9 +402,38 @@ function frame(now: number) {
       if (event.type === 'harvest' && event.actor !== 'farmer') note(240 + game.state.grain * 14, .045, .018);
       if (event.type === 'pickup') note(480, .08);
       if (event.type === 'sale') {
-        note(760, .16); const p = world.project(event, 1.9), pop = document.createElement('span');
-        pop.className = 'sale-pop'; pop.textContent = '+$12'; pop.style.left = `${p.x}px`; pop.style.top = `${p.y}px`;
-        app.append(pop); window.setTimeout(() => pop.remove(), 1100);
+        note(760, .16);
+        const p = world.project(event, 1.9), pop = document.createElement('span');
+        pop.className = 'sale-pop';
+        pop.textContent = `+$${event.amount ?? 12}`;
+        pop.style.left = `${p.x}px`;
+        pop.style.top = `${p.y}px`;
+        app.append(pop);
+        window.setTimeout(() => pop.remove(), 1100);
+      }
+      if (event.type === 'tip') {
+        note(960, .12, .04);
+        window.setTimeout(() => note(1200, .16, .045), 80);
+        const p = world.project(event, 2.3), pop = document.createElement('span');
+        pop.className = 'sale-pop tip-pop';
+        pop.textContent = `+$${event.amount ?? 4} SPEED TIP!`;
+        pop.style.left = `${p.x}px`;
+        pop.style.top = `${p.y - 24}px`;
+        app.append(pop);
+        window.setTimeout(() => pop.remove(), 1300);
+      }
+      if (event.type === 'customer_lost') {
+        note(160, .22, .05);
+        toast('A customer left in a hurry! Kitchen upgrades make pizzas faster.');
+        $('upgrades').classList.add('urgent-pulse');
+        window.setTimeout(() => $('upgrades').classList.remove('urgent-pulse'), 5000);
+      }
+      if (event.type === 'rush_up') {
+        note(523, .1, .04);
+        window.setTimeout(() => note(659, .1, .04), 90);
+        window.setTimeout(() => note(784, .2, .05), 180);
+        const stage = game.rushStage;
+        toast(`⚡ Rush Alert: ${stage.name}! Customers are arriving faster.`);
       }
       if (event.type === 'milestone') pendingMilestone = true;
     }
@@ -358,7 +456,13 @@ requestAnimationFrame(frame);
 $('loading').classList.add('ready');
 setTimeout(() => $('loading').remove(), 400);
 
-// Read-only development diagnostics for browser checks.
-if (import.meta.env.DEV) {
-  Object.assign(window, { __dough: { snapshot: () => structuredClone({ ...game.state, capacity: game.capacity, elapsed: game.elapsed, paused: dialog.open, cropCount: game.crops.filter(c => (!c.expansion || game.state.farmOwned) && c.readyAt <= game.elapsed).length, pizzaWorker: game.pizzaWorker, farmWorker: game.farmWorker, customers: game.customers, nearbyPurchase: game.nearbyPurchase }), project: (point: Point) => world.project(point), renderInfo: () => ({ calls: world.renderer.info.render.calls, triangles: world.renderer.info.render.triangles }) } });
-}
+// Development diagnostics and runtime state inspection
+Object.assign(window, {
+  __dough: {
+    game,
+    world,
+    snapshot: () => structuredClone({ ...game.state, capacity: game.capacity, elapsed: game.elapsed, paused: dialog.open, cropCount: game.crops.filter(c => (!c.expansion || game.state.farmOwned) && c.readyAt <= game.elapsed).length, pizzaWorker: game.pizzaWorker, farmWorker: game.farmWorker, customers: game.customers, nearbyPurchase: game.nearbyPurchase, rushStage: game.rushStage }),
+    project: (point: Point) => world.project(point),
+    renderInfo: () => ({ calls: world.renderer.info.render.calls, triangles: world.renderer.info.render.triangles }),
+  },
+});

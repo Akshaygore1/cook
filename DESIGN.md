@@ -34,6 +34,12 @@ The next stage extends the same miniature world along an open walking lane. The 
 
 The teal pizza worker collects and carries up to six pizzas to the counter. The green farm worker with a straw hat harvests the purchased field and delivers up to 18 wheat along the front lane. Their jobs and carrying inventories remain separate. Purchases are permanent, and worker cargo survives reloads. Neither worker produces while paused or offline.
 
-Four customers cycle through arrival, queueing, receiving a pizza, departing with a compliment, and returning. Only a customer at the front of the queue can be served. Waiting has no penalty. The decorative looping car and outdoor dining furniture are removed. Finished pizzas visibly slide from the oven mouth down a short ramp before becoming available at pickup.
+Six customer models cycle through arrival, queueing, receiving pizza, departing with compliments or storming off if wait times are excessive. Only a customer at the front of the queue can be served. Finished pizzas visibly slide from the oven mouth down a short ramp before becoming available at pickup.
 
 World labels use fixed widths and composited, device-pixel-aligned anchors after camera rendering. The oven progress fill updates each rendered frame; HUD backgrounds do not blur scenery moving behind them. Reduced-motion mode suppresses limb sway, smoke, celebratory particles, item flights, and decorative pulses while retaining readable production states.
+
+## Rush intensity and customer lifecycles
+
+Waiting customers feature visible pizza order tags and live patience countdowns transitioning from calm green (>50%) to warning yellow (20%–50%) and flashing red (<20%). Prompt service awards a +$4 Speed Tip ($16 total), rewarding efficient kitchen management. If a customer's patience expires before service, they storm off empty-handed, reset the player's satisfaction streak, and trigger an urgent prompt to upgrade kitchen throughput.
+
+As pizzas are served, the pizzeria advances across five escalating rush stages (Warmup Morning, Neighborhood Buzz, Lunch Rush, Dinner Frenzy, Pizzeria Craze) with tighter patience, rapid customer arrivals, queue capacity scaling from two up to six, and multi-pizza orders. Backpack capacity (up to 72), oven speed (down to 0.6s), and movement speed (up to 8.0) expand across four upgrade tiers to make scaling necessary to meet peak rush demand.

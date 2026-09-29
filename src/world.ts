@@ -110,6 +110,7 @@ export class World {
   private viewHeight = 26;
   private walkTime = 0;
   private customers: Person[] = [];
+  private customerStacks: number[] = [-1, -1, -1, -1, -1, -1];
   private workers: Record<'server' | 'farmer', Person>;
   private workerStacks = { server: -1, farmer: -1 };
   private purchaseSigns = new Map<Purchase, THREE.Group>();
@@ -289,7 +290,7 @@ export class World {
     pizza(this.scene, 6.7, 1.4, 6, .37);
     box(this.scene, [.52, .32, .4], [8.35, 1.53, 6], C.tealDark);
     box(this.scene, [.38, .24, .04], [8.35, 1.7, 6.19], 0xbad19d);
-    [0x658ca3, 0xd69b64, 0xa7a082, 0xb77c79].forEach((color) => {
+    [0x658ca3, 0xd69b64, 0xa7a082, 0xb77c79, 0x826e95, 0x4f887b].forEach((color) => {
       const customer = person(this.scene, color, false);
       customer.stack.position.set(0, .32, .55);
       pizza(customer.stack, 0, 0, 0, .4); customer.stack.visible = false;
@@ -382,6 +383,28 @@ export class World {
       }
     }
 
+    if (event.type === 'tip' || event.type === 'rush_up') {
+      const count = this.reducedMotion ? 0 : event.type === 'rush_up' ? 35 : 15;
+      for (let i = 0; i < count; i++) {
+        const color = event.type === 'rush_up' ? [C.tomato, C.gold, C.teal, C.cream][i % 4] : [C.gold, C.cream, 0xfff099][i % 3];
+        const mesh = new THREE.Mesh(new THREE.IcosahedronGeometry(.07 + Math.random() * .05, 0), mat(color));
+        mesh.position.set(event.x, 1.8, event.z);
+        this.scene.add(mesh);
+        const maximum = .6 + Math.random() * .5;
+        this.particles.push({ mesh, velocity: new THREE.Vector3((Math.random() - .5) * 4, 3 + Math.random() * 3, (Math.random() - .5) * 4), life: maximum, maximum });
+      }
+    }
+
+    if (event.type === 'customer_lost' && !this.reducedMotion) {
+      for (let i = 0; i < 9; i++) {
+        const mesh = new THREE.Mesh(new THREE.IcosahedronGeometry(.08 + Math.random() * .04, 0), mat(i % 2 ? C.tomato : C.ink));
+        mesh.position.set(event.x + (Math.random() - .5) * .4, 1.5, event.z + (Math.random() - .5) * .4);
+        this.scene.add(mesh);
+        const maximum = .45 + Math.random() * .35;
+        this.particles.push({ mesh, velocity: new THREE.Vector3((Math.random() - .5) * 1.6, 1.8 + Math.random() * 2, (Math.random() - .5) * 1.6), life: maximum, maximum });
+      }
+    }
+
     if (event.type === 'deposit' || event.type === 'pickup') {
       if (this.reducedMotion) return;
       const actor = event.actor === 'server' ? this.game.pizzaWorker.position : event.actor === 'farmer' ? this.game.farmWorker.position : this.game.state.position;
@@ -470,8 +493,18 @@ export class World {
     }
     this.customers.forEach((model, i) => {
       const customer = this.game.customers[i];
+      if (!customer) return;
       model.root.visible = customer.mode !== 'away';
-      model.stack.visible = customer.mode === 'leaving';
+      const showPizza = customer.mode === 'leaving' && customer.mood === 'happy';
+      model.stack.visible = showPizza;
+      if (showPizza && this.customerStacks[i] !== customer.servedPizzas) {
+        this.customerStacks[i] = customer.servedPizzas;
+        this.clearGroup(model.stack);
+        const count = Math.max(1, customer.servedPizzas);
+        for (let p = 0; p < count; p++) {
+          pizza(model.stack, 0, p * 0.16, 0, 0.4);
+        }
+      }
       this.animatePerson(model, customer, time + i, active);
     });
 
@@ -499,13 +532,26 @@ export class World {
     this.renderer.render(this.scene, this.camera);
   }
 
-  private animatePerson(model: Person, actor: { position: Point; heading: number; moving: boolean }, time: number, active: boolean) {
+  private animatePerson(model: Person, actor: { position: Point; heading: number; moving: boolean; mood?: string }, time: number, active: boolean) {
     model.root.position.set(actor.position.x, 0, actor.position.z);
     model.root.rotation.y = actor.heading;
-    const swing = actor.moving && active && !this.reducedMotion ? Math.sin(time * 12) * .5 : 0;
+    const isAngry = actor.mood === 'angry';
+    const isImpatient = actor.mood === 'impatient';
+    const speedMult = isAngry ? 1.5 : 1.0;
+    const swing = actor.moving && active && !this.reducedMotion ? Math.sin(time * 12 * speedMult) * .5 : 0;
     model.leftLeg.rotation.x = swing; model.rightLeg.rotation.x = -swing;
     model.leftArm.rotation.x = -swing * .65; model.rightArm.rotation.x = swing * .65;
-    model.body.position.y = .58;
+
+    let bounce = 0;
+    if (!actor.moving && active && !this.reducedMotion) {
+      if (isImpatient) {
+        bounce = Math.sin(time * 18) * 0.02;
+        model.rightLeg.rotation.x = Math.max(0, Math.sin(time * 18)) * 0.3;
+      } else if (isAngry) {
+        bounce = Math.sin(time * 24) * 0.025;
+      }
+    }
+    model.body.position.y = .58 + bounce;
   }
 
   face(direction: Point, dt: number) {

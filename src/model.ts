@@ -8,6 +8,9 @@ export type GameEvent = {
     | "baked"
     | "pickup"
     | "sale"
+    | "tip"
+    | "customer_lost"
+    | "rush_up"
     | "upgrade"
     | "milestone";
   x: number;
@@ -18,7 +21,22 @@ export type GameEvent = {
 };
 export type Crop = Point & { readyAt: number; expansion: boolean };
 export type Worker = { position: Point; heading: number; moving: boolean; cooldown: number; delivering: boolean };
-export type Customer = { id: number; position: Point; heading: number; moving: boolean; mode: "arriving" | "waiting" | "leaving" | "away"; order: number; wait: number; compliment: string };
+export type CustomerMood = "neutral" | "happy" | "impatient" | "angry";
+export type Customer = {
+  id: number;
+  position: Point;
+  heading: number;
+  moving: boolean;
+  mode: "arriving" | "waiting" | "leaving" | "away";
+  order: number;
+  wait: number;
+  compliment: string;
+  patience: number;
+  maxPatience: number;
+  neededPizzas: number;
+  servedPizzas: number;
+  mood: CustomerMood;
+};
 export type SaveData = {
   version: 2;
   farmOwned: boolean;
@@ -27,6 +45,8 @@ export type SaveData = {
   outputProgress: number;
   coins: number;
   served: number;
+  lost: number;
+  streak: number;
   harvested: number;
   grain: number;
   pizzas: number;
@@ -36,6 +56,29 @@ export type SaveData = {
   levels: Record<Upgrade, number>;
   position: Point;
 };
+
+export type RushStage = {
+  stage: number;
+  name: string;
+  badge: string;
+  minServed: number;
+  maxQueue: number;
+  patience: number;
+  arrivalCooldown: number;
+  multiPizzaProb: number;
+};
+
+export const RUSH_STAGES: RushStage[] = [
+  { stage: 1, name: "Warmup Morning", badge: "Warmup", minServed: 0, maxQueue: 2, patience: 36, arrivalCooldown: 4.0, multiPizzaProb: 0 },
+  { stage: 2, name: "Neighborhood Buzz", badge: "Busy", minServed: 5, maxQueue: 3, patience: 28, arrivalCooldown: 2.8, multiPizzaProb: 0.25 },
+  { stage: 3, name: "Lunch Rush", badge: "Rush!", minServed: 12, maxQueue: 4, patience: 22, arrivalCooldown: 2.0, multiPizzaProb: 0.45 },
+  { stage: 4, name: "Dinner Frenzy", badge: "Frenzy!", minServed: 25, maxQueue: 5, patience: 18, arrivalCooldown: 1.5, multiPizzaProb: 0.65 },
+  { stage: 5, name: "Pizzeria Craze", badge: "Craze!", minServed: 45, maxQueue: 6, patience: 15, arrivalCooldown: 1.2, multiPizzaProb: 0.8 },
+];
+
+export const BASKET_CAPACITIES = [18, 27, 38, 54, 72];
+export const OVEN_TIMES = [2.8, 2.0, 1.4, 0.9, 0.6];
+export const SHOE_SPEEDS = [4.5, 5.2, 6.0, 7.0, 8.0];
 
 export const STATIONS = {
   delivery: { x: 0.3, z: -3.2 },
@@ -50,11 +93,12 @@ export const PURCHASES = {
   farmer: { x: -18.3, z: 3.8, price: 144, title: "Hire farm worker", detail: "Harvests your new farm and fills the oven." },
 };
 export const QUEUE_FRONT = { x: 7.3, z: 7.65 };
-const compliments = ["Best pizza in town!", "Worth the walk!", "That crust!", "Fresh from the farm!", "See you tomorrow!"];
+const compliments = ["Best pizza in town!", "Worth the walk!", "That crust!", "Fresh from the farm!", "See you tomorrow!", "Super speedy service!", "Pure perfection!"];
+const angryQuotes = ["Too slow! 😠", "I can't wait forever!", "Starving here! ⏳", "Gotta run! 💨", "Terrible wait! 😤"];
 export const UPGRADE_PRICES: Record<Upgrade, number[]> = {
-  basket: [36, 90, 180],
-  oven: [48, 120, 220],
-  shoes: [36, 90, 180],
+  basket: [36, 90, 180, 320],
+  oven: [48, 120, 220, 380],
+  shoes: [36, 90, 180, 300],
 };
 export const OBSTACLES = [
   { left: 1.8, right: 7.0, back: -6.7, front: -3.0 },
@@ -75,11 +119,11 @@ export function readSave(raw: string | null): SaveData | undefined {
     const value = JSON.parse(raw);
     if (!value || (value.version !== 1 && value.version !== 2) || !value.levels) return;
     const levels = {
-      basket: bounded(value.levels.basket, 3),
-      oven: bounded(value.levels.oven, 3),
-      shoes: bounded(value.levels.shoes, 3),
+      basket: bounded(value.levels.basket, 4),
+      oven: bounded(value.levels.oven, 4),
+      shoes: bounded(value.levels.shoes, 4),
     };
-    const capacity = 18 + levels.basket * 9;
+    const capacity = BASKET_CAPACITIES[levels.basket] ?? 18;
     const grain = bounded(value.grain, capacity);
     const outputProgress = typeof value.outputProgress === "number" && Number.isFinite(value.outputProgress) ? Math.max(0, Math.min(.999, value.outputProgress)) : 0;
     return {
@@ -91,6 +135,8 @@ export function readSave(raw: string | null): SaveData | undefined {
       levels,
       coins: bounded(value.coins, 9999999),
       served: bounded(value.served, 999999),
+      lost: bounded(value.lost, 999999),
+      streak: bounded(value.streak, 999999),
       harvested: bounded(value.harvested, 9999999),
       grain,
       pizzas: bounded(value.pizzas, capacity - grain),
@@ -116,7 +162,8 @@ export class Game {
   pizzaWorker: Worker = this.makeWorker(STATIONS.pickup);
   farmWorker: Worker = this.makeWorker(PURCHASES.farmer);
   customers: Customer[] = [];
-  private customerOrder = 4;
+  lastStage = 1;
+  private customerOrder = 6;
   private arrivalCooldown = 0;
   private harvestCooldown = 0;
   private stationCooldown = 0;
@@ -130,6 +177,8 @@ export class Game {
       outputProgress: 0,
       coins: 0,
       served: 0,
+      lost: 0,
+      streak: 0,
       harvested: 0,
       grain: 0,
       pizzas: 0,
@@ -139,6 +188,7 @@ export class Game {
       levels: { basket: 0, oven: 0, shoes: 0 },
       position: { x: -0.8, z: 3.5 },
     };
+    this.lastStage = this.rushStage.stage;
     for (let row = 0; row < 12; row++) {
       for (let col = 0; col < 11; col++) {
         this.crops.push({
@@ -154,7 +204,60 @@ export class Game {
         this.crops.push({ x: EXTRA_FIELD.left + .25 + col * .74, z: EXTRA_FIELD.back + .35 + row * .75, readyAt: 0, expansion: true });
       }
     }
-    this.customers = Array.from({ length: 4 }, (_, id) => ({ id, position: { x: 13.5 + id * 1.4, z: 7.65 }, heading: -Math.PI / 2, moving: false, mode: "arriving", order: id, wait: 0, compliment: "" }));
+    const initialStage = this.rushStage;
+    this.customers = Array.from({ length: 6 }, (_, id) => this.initCustomer(id, id < initialStage.maxQueue ? "arriving" : "away", id));
+  }
+
+  initCustomer(id: number, mode: Customer["mode"] = "away", queueOrder = 0): Customer {
+    const stage = this.rushStage;
+    let neededPizzas = 1;
+    if (Math.random() < stage.multiPizzaProb) {
+      neededPizzas = stage.stage >= 4 && Math.random() < 0.35 ? 3 : 2;
+    }
+    const maxPatience = stage.patience + (neededPizzas - 1) * 6;
+    return {
+      id,
+      position: { x: 13.5 + id * 1.4, z: 7.65 },
+      heading: -Math.PI / 2,
+      moving: false,
+      mode,
+      order: queueOrder,
+      wait: 0,
+      compliment: "",
+      patience: maxPatience,
+      maxPatience,
+      neededPizzas,
+      servedPizzas: 0,
+      mood: "neutral",
+    };
+  }
+
+  spawnCustomer(customer: Customer) {
+    const stage = this.rushStage;
+    let neededPizzas = 1;
+    if (Math.random() < stage.multiPizzaProb) {
+      neededPizzas = stage.stage >= 4 && Math.random() < 0.35 ? 3 : 2;
+    }
+    const maxPatience = stage.patience + (neededPizzas - 1) * 6;
+    customer.position = { x: 14, z: 7.65 };
+    customer.mode = "arriving";
+    customer.order = this.customerOrder++;
+    customer.compliment = "";
+    customer.neededPizzas = neededPizzas;
+    customer.servedPizzas = 0;
+    customer.maxPatience = maxPatience;
+    customer.patience = maxPatience;
+    customer.mood = "neutral";
+    customer.wait = 0;
+    customer.heading = -Math.PI / 2;
+  }
+
+  get rushStage(): RushStage {
+    let current = RUSH_STAGES[0];
+    for (const stage of RUSH_STAGES) {
+      if (this.state.served >= stage.minServed) current = stage;
+    }
+    return current;
   }
 
   private makeWorker(position: Point): Worker {
@@ -166,8 +269,9 @@ export class Game {
     this.state = fresh.state; this.elapsed = 0; this.events = []; this.moving = false;
     this.crops.forEach(crop => crop.readyAt = 0);
     this.pizzaWorker = fresh.pizzaWorker; this.farmWorker = fresh.farmWorker;
-    this.customers = fresh.customers; this.customerOrder = 4; this.arrivalCooldown = 0;
+    this.customers = fresh.customers; this.customerOrder = 6; this.arrivalCooldown = 0;
     this.harvestCooldown = this.stationCooldown = 0;
+    this.lastStage = 1;
   }
 
   owns(purchase: Purchase) {
@@ -196,16 +300,16 @@ export class Game {
   }
 
   get capacity() {
-    return 18 + this.state.levels.basket * 9;
+    return BASKET_CAPACITIES[this.state.levels.basket] ?? 18;
   }
   get load() {
     return this.state.grain + this.state.pizzas;
   }
   get speed() {
-    return 4.5 + this.state.levels.shoes * 0.65;
+    return SHOE_SPEEDS[this.state.levels.shoes] ?? 4.5;
   }
   get bakeTime() {
-    return [2.8, 2.1, 1.5, 1][this.state.levels.oven];
+    return OVEN_TIMES[this.state.levels.oven] ?? 2.8;
   }
   get full() {
     return this.load >= this.capacity;
@@ -300,21 +404,53 @@ export class Game {
   }
 
   private updateCustomers(dt: number) {
+    const stage = this.rushStage;
     const queue = this.customers.filter(c => c.mode === "arriving" || c.mode === "waiting").sort((a, b) => a.order - b.order);
     queue.forEach((c, i) => {
       c.mode = this.walk(c, { x: QUEUE_FRONT.x + i * 1.25, z: QUEUE_FRONT.z }, 2.2, dt) ? "waiting" : "arriving";
       if (!c.moving) c.heading = Math.PI;
     });
-    this.arrivalCooldown = Math.max(0, this.arrivalCooldown - dt);
+
+    for (const c of queue) {
+      if (c.mode === "waiting") {
+        c.patience = Math.max(0, c.patience - dt);
+        const ratio = c.patience / c.maxPatience;
+        if (ratio > 0.5) c.mood = "neutral";
+        else if (ratio > 0.2) c.mood = "impatient";
+        else c.mood = "angry";
+
+        if (c.patience === 0) {
+          c.mode = "leaving";
+          c.mood = "angry";
+          c.wait = 1.0;
+          c.compliment = angryQuotes[Math.floor(Math.random() * angryQuotes.length)];
+          this.state.lost = (this.state.lost || 0) + 1;
+          this.state.streak = 0;
+          this.events.push({ type: "customer_lost", x: c.position.x, z: c.position.z, customer: c.id });
+        }
+      }
+    }
+
     for (const c of this.customers) {
       if (c.mode === "leaving") {
         c.wait = Math.max(0, c.wait - dt);
         if (c.wait > 0) { c.moving = false; continue; }
         const target = c.position.z < 9.25 ? { x: c.position.x, z: 9.3 } : { x: 14, z: 9.3 };
-        if (this.walk(c, target, 2.5, dt) && c.position.x >= 14) { c.mode = "away"; c.moving = false; }
-      } else if (c.mode === "away" && this.arrivalCooldown === 0) {
-        c.position = { x: 14, z: 7.65 }; c.mode = "arriving"; c.order = this.customerOrder++; c.compliment = "";
-        this.arrivalCooldown = 2.5;
+        const exitSpeed = c.mood === "angry" ? 3.4 : 2.5;
+        if (this.walk(c, target, exitSpeed, dt) && c.position.x >= 14) {
+          c.mode = "away";
+          c.moving = false;
+        }
+      }
+    }
+
+    this.arrivalCooldown = Math.max(0, this.arrivalCooldown - dt);
+    const activeCount = this.customers.filter(c => c.mode === "arriving" || c.mode === "waiting").length;
+    if (activeCount < stage.maxQueue && this.arrivalCooldown === 0) {
+      const candidate = this.customers.find(c => c.mode === "away");
+      if (candidate) {
+        this.spawnCustomer(candidate);
+        this.arrivalCooldown = stage.arrivalCooldown;
       }
     }
   }
@@ -326,11 +462,43 @@ export class Game {
   private serve(actor: "player" | "server") {
     const customer = this.customers.filter(c => c.mode === "waiting" || c.mode === "arriving").sort((a, b) => a.order - b.order)[0];
     if (!customer || customer.mode !== "waiting" || distance(customer.position, QUEUE_FRONT) > .1) return false;
-    customer.mode = "leaving"; customer.wait = 1.2;
+
+    customer.servedPizzas++;
+    const isOrderComplete = customer.servedPizzas >= customer.neededPizzas;
+
+    if (!isOrderComplete) {
+      customer.patience = Math.min(customer.maxPatience, customer.patience + 6);
+      customer.compliment = `${customer.servedPizzas}/${customer.neededPizzas} pizzas! 🍕`;
+      this.state.coins += 12;
+      this.events.push({ type: "sale", ...STATIONS.counter, amount: 12, actor, customer: customer.id });
+      return true;
+    }
+
+    customer.mode = "leaving";
+    customer.mood = "happy";
+    customer.wait = 1.2;
     customer.compliment = compliments[this.state.served % compliments.length];
-    this.state.served++; this.state.coins += 12;
-    this.events.push({ type: "sale", ...STATIONS.counter, amount: 12, actor, customer: customer.id });
+    this.state.served++;
+    this.state.streak = (this.state.streak || 0) + 1;
+
+    const isSpeedy = (customer.patience / customer.maxPatience) >= 0.5;
+    const tip = isSpeedy ? 4 : 0;
+    const saleAmount = 12 + tip;
+    this.state.coins += saleAmount;
+
+    if (tip > 0) {
+      this.events.push({ type: "tip", ...STATIONS.counter, amount: tip, customer: customer.id });
+    }
+    this.events.push({ type: "sale", ...STATIONS.counter, amount: saleAmount, actor, customer: customer.id });
+
     if (this.state.served === 10) this.events.push({ type: "milestone", ...this.state.position });
+
+    const newStage = this.rushStage.stage;
+    if (newStage > this.lastStage) {
+      this.lastStage = newStage;
+      this.events.push({ type: "rush_up", ...STATIONS.counter, amount: newStage });
+    }
+
     return true;
   }
 
