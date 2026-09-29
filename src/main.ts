@@ -1,5 +1,5 @@
 import './style.css';
-import { Game, readSave, STATIONS, type Upgrade, type Point } from './model';
+import { Game, readSave, STATIONS, PURCHASES, type Purchase, type Upgrade, type Point } from './model';
 import { World } from './world';
 
 const icons: Record<string, string> = {
@@ -63,7 +63,9 @@ app.innerHTML = `
       <div class="station-label" id="label-field"><strong>Wheat field</strong></div>
       <div class="station-label" id="label-delivery"><strong>Drop wheat</strong><small id="oven-stock">3 wheat = 1 pizza</small></div>
       <div class="station-label" id="label-pickup"><strong id="pizza-stock">Pizza pickup</strong><small id="bake-status">Oven needs wheat</small><div class="bake-track"><span id="bake-fill"></span></div></div>
-      <div class="station-label" id="label-counter"><strong>Serve here · $12</strong></div>
+      <div class="station-label" id="label-counter"><strong>Serve here · $12</strong><small id="queue-status">Customers on their way</small></div>
+      ${(['server', 'farm', 'farmer'] as Purchase[]).map(key => `<div class="station-label purchase-label" id="label-${key}"><strong>${key === 'farm' ? 'Wheat farm' : key === 'server' ? 'Pizza worker' : 'Farm worker'} · $${PURCHASES[key].price}</strong><small>Walk here to ${key === 'farm' ? 'buy' : 'hire'}</small></div>`).join('')}
+      ${game.customers.map(customer => `<div class="compliment" id="compliment-${customer.id}" hidden></div>`).join('')}
       <div class="player-badge" id="player-badge" hidden></div>
     </div>
     <div class="edge-guide" id="edge-guide" hidden><span id="edge-guide-name">Kitchen</span>${icon('arrow')}</div>
@@ -71,6 +73,7 @@ app.innerHTML = `
     <div class="inventory" id="inventory"><span class="bag-icon">${icon('bag')}</span><div><p class="inventory-label">Your basket</p><p class="inventory-value" id="inventory-value">0 <small>/ 18</small></p><div class="inventory-bar"><span id="inventory-fill"></span></div></div></div>
     <div class="objective"><div class="objective-steps"><span id="step-harvest" class="active">Harvest</span>${icon('arrow')}<span id="step-bake">Bake</span>${icon('arrow')}<span id="step-serve">Serve</span></div><p class="objective-title" id="objective-title"></p><p class="objective-detail" id="objective-detail"></p></div>
     <button class="upgrade-button" id="upgrades" aria-label="Little upgrades" title="Little upgrades">${icon('upgrade')}<span><strong>Little upgrades</strong><small>Make room to grow</small></span><i class="upgrade-dot"></i></button>
+    <div class="purchase-prompt" id="purchase-prompt" hidden><div><strong id="purchase-title"></strong><p id="purchase-detail"></p></div><button id="purchase-button" class="buy-button" title="Press E or click to purchase"></button></div>
     <div class="joystick" id="joystick" role="group" aria-label="Touch movement joystick"><div class="joystick-knob" id="joystick-knob"></div></div>
   </div>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
@@ -144,7 +147,8 @@ function howTo() {
       ['Harvest', 'Walk into the wheat to fill your basket. It grows back after a little while.'],
       ['Bake', 'Stand on the golden pad by the oven. Three wheat make one pizza.'],
       ['Pick up', 'Wait at the green pad to collect fresh pizzas.'],
-      ['Serve & grow', 'Walk to the striped counter. Each pizza earns $12 for upgrades.'],
+      ['Serve & grow', 'Walk to the striped counter. Each pizza earns $12. Customers queue, enjoy their pizza, and leave.'],
+      ['Build your team', 'Visit the signs to hire a pizza worker ($96), buy a wheat farm ($180), and hire a farm worker ($144). Press E or tap Buy.'],
     ].map(([title, copy], i) => `<div class="how-step"><span class="step-number">${i + 1}</span><div><h3>${title}</h3><p>${copy}</p></div></div>`).join('')}
     <div class="dialog-bottom"><strong>WASD / Arrow keys</strong> to move. On phones, drag the <strong>joystick</strong>. <strong>Esc</strong> pauses the game.<br>Progress saves automatically on this browser.</div>
     <button class="primary-button dialog-wide" data-action="${started ? 'close' : 'start'}">${started ? 'Back to the kitchen' : 'Let’s make pizza'} ${icon('play')}</button>`, 'help');
@@ -185,7 +189,7 @@ dialog.addEventListener('click', event => {
     case 'reset-confirm': openDialog(`${dialogHeader('A fresh start?')}<p class="dialog-intro">This replaces your saved farm, coins, and upgrades with a new game.</p><button class="primary-button dialog-wide" data-action="reset">Start a new farm</button><button class="text-button" data-action="pause">Keep my farm</button>`, 'reset'); break;
     case 'pause': pause(); break;
     case 'reset': {
-      game.state = new Game().state; game.elapsed = 0; game.events = []; game.crops.forEach(crop => crop.readyAt = 0); pendingMilestone = false;
+      game.reset(); pendingMilestone = false;
       save(); dialog.close(); updateUI(); toast('A fresh field, a warm oven. Let’s go.'); break;
     }
   }
@@ -199,6 +203,7 @@ window.addEventListener('keydown', event => {
     return;
   }
   if (!started || dialog.open) return;
+  if (event.key.toLowerCase() === 'e' && !event.repeat) { event.preventDefault(); buyNearby(); return; }
   if (['w', 'a', 's', 'd', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key.length === 1 ? event.key.toLowerCase() : event.key)) {
     event.preventDefault(); keys.add(event.key.toLowerCase());
   }
@@ -220,13 +225,27 @@ joystick.addEventListener('pointermove', moveStick);
 function releaseStick(event: PointerEvent) { if (stick.pointer !== event.pointerId) return; stick.pointer = -1; stick.x = stick.y = 0; $('joystick-knob').style.transform = ''; }
 joystick.addEventListener('pointerup', releaseStick); joystick.addEventListener('pointercancel', releaseStick); joystick.addEventListener('lostpointercapture', releaseStick);
 
+function buyNearby() {
+  if (!started || dialog.open) return;
+  const key = game.nearbyPurchase;
+  if (!key) return;
+  const reason = game.purchaseReason(key);
+  if (reason) { toast(reason); return; }
+  if (game.purchase(key)) {
+    note(660, .18); save(); updateUI();
+    toast(key === 'farm' ? 'Your new wheat farm is ready to harvest!' : key === 'server' ? 'Pizza worker hired. Fresh pizzas are in good hands.' : 'Farm worker hired. Wheat deliveries are covered.');
+    canvas.focus({ preventScroll: true });
+  }
+}
+$('purchase-button').addEventListener('click', buyNearby);
+
 let lastObjective = '';
 function updateUI() {
   const s = game.state;
   $('coins').textContent = s.coins.toLocaleString();
   $('served').textContent = String(s.served);
   $('served-label').textContent = s.served < 10 ? '/ 10 pizzas served' : 'happy customers';
-  $('goal-label').textContent = s.served < 10 ? 'Your first little rush' : 'Made with a little love';
+  $('goal-label').textContent = s.served < 10 ? 'Your first little rush' : s.workers.server && s.workers.farmer ? 'A farm of your own' : 'Grow your little team';
   document.querySelectorAll('.day-track i').forEach((dot, i) => dot.classList.toggle('done', i < s.served));
   const basketText = s.pizzas > 0 ? `${s.pizzas} pizza${s.pizzas === 1 ? '' : 's'}${s.grain ? ` · ${s.grain} wheat` : ''}` : `${s.grain} <small>/ ${game.capacity}</small>`;
   $('inventory-value').innerHTML = game.full ? `FULL <small>${game.load}/${game.capacity}</small>` : basketText;
@@ -240,8 +259,18 @@ function updateUI() {
   if (lastObjective !== objective.title) { lastObjective = objective.title; $('live-objective').textContent = objective.title + '. ' + objective.detail; }
   $('oven-stock').textContent = s.ovenWheat ? `${s.ovenWheat} wheat in kitchen` : '3 wheat = 1 pizza';
   $('pizza-stock').textContent = s.readyPizzas ? `${s.readyPizzas} pizza${s.readyPizzas === 1 ? '' : 's'} ready` : 'Pizza pickup';
-  $('bake-status').textContent = s.readyPizzas >= 24 ? 'Collect to make room' : s.ovenWheat >= 3 ? `Baking · ${Math.ceil((1 - s.bakeProgress) * game.bakeTime)}s` : s.readyPizzas ? 'Fresh & ready to go' : 'Oven needs wheat';
-  $('bake-fill').style.width = `${s.bakeProgress * 100}%`;
+  $('bake-status').textContent = s.readyPizzas >= 24 ? 'Collect to make room' : s.outputProgress > 0 ? 'Fresh out of the oven!' : s.ovenWheat >= 3 ? `Baking · ${Math.ceil((1 - s.bakeProgress) * game.bakeTime)}s` : s.readyPizzas ? 'Fresh & ready to go' : 'Oven needs wheat';
+  $('queue-status').textContent = game.waitingCustomers ? `${game.waitingCustomers} in the queue${s.workers.server ? ' · Worker on duty' : ''}` : 'More customers on their way';
+  const key = game.nearbyPurchase;
+  $('purchase-prompt').hidden = !key;
+  if (key) {
+    const purchase = PURCHASES[key], reason = game.purchaseReason(key);
+    $('purchase-title').textContent = purchase.title;
+    $('purchase-detail').textContent = reason || purchase.detail;
+    $('purchase-button').textContent = `${key === 'farm' ? 'Buy' : 'Hire'} · $${purchase.price}`;
+    $<HTMLButtonElement>('purchase-button').disabled = !!reason;
+    $('purchase-button').setAttribute('aria-label', `${purchase.title} for ${purchase.price} coins${reason ? `. ${reason}` : ''}`);
+  }
   $('upgrades').classList.toggle('available', (['basket', 'oven', 'shoes'] as Upgrade[]).some(key => game.price(key) !== null && s.coins >= game.price(key)!));
   $('player-badge').hidden = !game.load;
   $('player-badge').textContent = game.full ? 'MAX!' : s.pizzas ? `${s.pizzas} pizza${s.pizzas === 1 ? '' : 's'}` : `${s.grain}/${game.capacity}`;
@@ -252,23 +281,38 @@ const labels = [
   { id: 'label-delivery', point: STATIONS.delivery, y: .7 },
   { id: 'label-pickup', point: STATIONS.pickup, y: .7 },
   { id: 'label-counter', point: STATIONS.counter, y: .9 },
+  ...(['server', 'farm', 'farmer'] as Purchase[]).map(key => ({ id: `label-${key}`, point: PURCHASES[key], y: 2.2 })),
 ];
+// Project after the camera renders, then move one composited layer on whole
+// device pixels. Stable label widths keep changing counts from shifting their anchor.
+function anchor(el: HTMLElement, point: { x: number; y: number }) {
+  const ratio = window.devicePixelRatio || 1;
+  const x = Math.round(point.x * ratio) / ratio, y = Math.round(point.y * ratio) / ratio;
+  el.style.transform = `translate3d(${x}px,${y}px,0) translate(-50%,-100%)`;
+}
 function positionLabels() {
   const width = canvas.clientWidth, height = canvas.clientHeight;
   labels.forEach(label => {
     const p = world.project(label.point, label.y), el = $(label.id);
-    el.style.left = `${p.x}px`; el.style.top = `${p.y}px`;
-    el.style.visibility = p.x < 55 || p.x > width - 55 || p.y < (width < 760 ? 132 : 95) || p.y > height - (width < 760 ? 150 : 140) ? 'hidden' : 'visible';
+    anchor(el, p);
+    const purchase = label.id.replace('label-', '') as Purchase;
+    const owned = purchase in PURCHASES && game.owns(purchase);
+    el.style.visibility = owned || p.x < 78 || p.x > width - 78 || p.y < (width < 760 ? 180 : 130) || p.y > height - (width < 760 ? 175 : 145) ? 'hidden' : 'visible';
   });
   const p = world.project(game.state.position, 2.25 + Math.min(game.load, 18) * .11);
-  $('player-badge').style.left = `${p.x}px`; $('player-badge').style.top = `${p.y}px`;
+  anchor($('player-badge'), p);
+  game.customers.forEach(customer => {
+    const el = $(`compliment-${customer.id}`);
+    el.hidden = customer.mode !== 'leaving' || customer.position.z >= 9;
+    if (!el.hidden) { el.textContent = customer.compliment; anchor(el, world.project(customer.position, 2.4)); }
+  });
   const destination = world.project(game.objective.target), bottom = height - 280;
   const outside = destination.x < 45 || destination.x > width - 45 || destination.y < 120 || destination.y > bottom;
   const guide = $('edge-guide'); guide.hidden = width >= 760 || !outside;
   if (!guide.hidden) {
     guide.style.left = `${Math.max(55, Math.min(width - 55, destination.x))}px`;
     guide.style.top = `${Math.max(130, Math.min(bottom, destination.y))}px`;
-    const name = ['Wheat', 'Kitchen', 'Pizzas', 'Counter'][game.objective.step];
+    const name = ['Wheat', 'Kitchen', 'Pizzas', 'Counter', 'Grow your farm'][game.objective.step];
     $('edge-guide-name').textContent = name;
     guide.querySelector('svg')!.style.transform = `rotate(${Math.atan2(destination.y - height / 2, destination.x - width / 2)}rad)`;
   }
@@ -286,7 +330,7 @@ function frame(now: number) {
     game.step(dt, direction); world.face(direction, dt);
     for (const event of game.events) {
       world.event(event);
-      if (event.type === 'harvest') note(240 + game.state.grain * 14, .045, .018);
+      if (event.type === 'harvest' && event.actor !== 'farmer') note(240 + game.state.grain * 14, .045, .018);
       if (event.type === 'pickup') note(480, .08);
       if (event.type === 'sale') {
         note(760, .16); const p = world.project(event, 1.9), pop = document.createElement('span');
@@ -298,12 +342,13 @@ function frame(now: number) {
     game.events = [];
     if (pendingMilestone && !dialog.open) {
       pendingMilestone = false; save();
-      openDialog(`<div class="celebration"><span class="big-pizza">${icon('pizza')}</span><h2 id="dialog-title">A little local favorite.</h2><p>Ten fresh pizzas. Ten happy customers.<br>Your little farm is off to a delicious start.</p><button class="primary-button dialog-wide" data-action="close">Keep the good things growing ${icon('arrow')}</button></div>`, 'milestone');
+      openDialog(`<div class="celebration"><span class="big-pizza">${icon('pizza')}</span><h2 id="dialog-title">A little local favorite.</h2><p>Ten fresh pizzas. Ten happy customers.<br>Build your team: visit the pizza worker sign, then explore the farm for sale.</p><button class="primary-button dialog-wide" data-action="close">Keep the good things growing ${icon('arrow')}</button></div>`, 'milestone');
     }
     saveClock += dt;
     if (saveClock > 2) { saveClock = 0; save(); }
   } else game.moving = false;
-  world.update(dt, visualTime, started); positionLabels();
+  world.update(dt, visualTime, started, active); positionLabels();
+  $('bake-fill').style.transform = `scaleX(${game.state.bakeProgress})`;
   uiClock += dt; if (uiClock >= .1) { updateUI(); uiClock = 0; }
   requestAnimationFrame(frame);
 }
@@ -315,5 +360,5 @@ setTimeout(() => $('loading').remove(), 400);
 
 // Read-only development diagnostics for browser checks.
 if (import.meta.env.DEV) {
-  Object.assign(window, { __dough: { snapshot: () => structuredClone({ ...game.state, capacity: game.capacity, elapsed: game.elapsed, paused: dialog.open, cropCount: game.crops.filter(c => c.readyAt <= game.elapsed).length }), project: (point: Point) => world.project(point), renderInfo: () => ({ calls: world.renderer.info.render.calls, triangles: world.renderer.info.render.triangles }) } });
+  Object.assign(window, { __dough: { snapshot: () => structuredClone({ ...game.state, capacity: game.capacity, elapsed: game.elapsed, paused: dialog.open, cropCount: game.crops.filter(c => (!c.expansion || game.state.farmOwned) && c.readyAt <= game.elapsed).length, pizzaWorker: game.pizzaWorker, farmWorker: game.farmWorker, customers: game.customers, nearbyPurchase: game.nearbyPurchase }), project: (point: Point) => world.project(point), renderInfo: () => ({ calls: world.renderer.info.render.calls, triangles: world.renderer.info.render.triangles }) } });
 }

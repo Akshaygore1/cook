@@ -24,11 +24,20 @@ npm run preview     # Preview the production build
 
 - **WASD / arrow keys:** move relative to the screen.
 - **Phone joystick:** drag to move.
+- **E / Buy button:** buy the nearby farm plot or hire the worker at a sign.
 - **Escape / pause button:** pause; the game also pauses when the tab is hidden or switched away.
 
-Walk into wheat to harvest it automatically. Carry it to the golden pad next to the oven. Three wheat make one pizza. Pick up baked pizzas at the green pad, then serve them at the striped counter for $12 each. Spend coins on basket, oven, and movement upgrades. Serve ten pizzas to reach the first milestone, then keep playing.
+Walk into wheat to harvest it automatically. Carry it to the golden pad next to the oven. Three wheat make one pizza. Pick up baked pizzas at the green pad, then serve them at the striped counter for $12 each. Spend coins on basket, oven, and movement upgrades. Serve ten pizzas to reach the first milestone, then grow your team and keep playing. Customers walk in, queue without impatience penalties, collect their pizzas, and leave with a compliment.
 
-Wheat regrows after 14 seconds. The kitchen holds 72 wheat and 24 prepared pizzas. Progress saves in this browser's local storage every two seconds and when leaving the page. There is no offline production. Sound is optional and starts muted. A new farm can be started from the pause menu with a confirmation.
+Follow the open path to the left to explore a second farm plot. Walk into a purchase ring and press **E** or tap its button:
+
+- **Pizza worker — $96:** collects up to six pizzas at pickup and carries them to customers.
+- **Wheat farm — $180:** opens another 156 regrowing wheat patches for you to harvest.
+- **Farm worker — $144:** available after buying the farm; harvests up to 18 wheat and carries it to the kitchen.
+
+These are separate, permanent purchases with no wages. You can buy the farm whenever you can afford it; the ten-pizza milestone does not lock it. Players can still harvest, deliver, and serve alongside their workers. The original basket, oven, and movement upgrades remain available.
+
+Wheat regrows after 14 seconds. The kitchen holds 72 wheat and 24 prepared pizzas. Progress saves in this browser's local storage every two seconds and when leaving the page. Finished pizzas slide out of the oven into pickup storage. Farm ownership, both workers, their carried ingredients, and any pizza on the output ramp are saved too; first-version saves migrate automatically. There is no offline production. Sound is optional and starts muted. A new farm can be started from the pause menu with a confirmation.
 
 ## Project layout
 

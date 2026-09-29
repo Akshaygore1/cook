@@ -1,4 +1,5 @@
 export type Upgrade = "basket" | "oven" | "shoes";
+export type Purchase = "server" | "farm" | "farmer";
 export type Point = { x: number; z: number };
 export type GameEvent = {
   type:
@@ -12,10 +13,18 @@ export type GameEvent = {
   x: number;
   z: number;
   amount?: number;
+  actor?: "player" | "server" | "farmer";
+  customer?: number;
 };
-export type Crop = Point & { readyAt: number };
+export type Crop = Point & { readyAt: number; expansion: boolean };
+export type Worker = { position: Point; heading: number; moving: boolean; cooldown: number; delivering: boolean };
+export type Customer = { id: number; position: Point; heading: number; moving: boolean; mode: "arriving" | "waiting" | "leaving" | "away"; order: number; wait: number; compliment: string };
 export type SaveData = {
-  version: 1;
+  version: 2;
+  farmOwned: boolean;
+  workers: { server: boolean; farmer: boolean };
+  cargo: { server: number; farmer: number };
+  outputProgress: number;
   coins: number;
   served: number;
   harvested: number;
@@ -34,6 +43,14 @@ export const STATIONS = {
   counter: { x: 7.3, z: 4.2 },
 };
 export const FIELD = { left: -10.8, right: -2.8, back: -6.9, front: 2.1 };
+export const EXTRA_FIELD = { left: -23, right: -13.6, back: -6.9, front: 2.1 };
+export const PURCHASES = {
+  server: { x: 2.5, z: 3.6, price: 96, title: "Hire pizza worker", detail: "Collects pizzas and serves your customers." },
+  farm: { x: -12.6, z: 3.8, price: 180, title: "Buy wheat farm", detail: "More wheat, more room to grow." },
+  farmer: { x: -18.3, z: 3.8, price: 144, title: "Hire farm worker", detail: "Harvests your new farm and fills the oven." },
+};
+export const QUEUE_FRONT = { x: 7.3, z: 7.65 };
+const compliments = ["Best pizza in town!", "Worth the walk!", "That crust!", "Fresh from the farm!", "See you tomorrow!"];
 export const UPGRADE_PRICES: Record<Upgrade, number[]> = {
   basket: [36, 90, 180],
   oven: [48, 120, 220],
@@ -42,6 +59,7 @@ export const UPGRADE_PRICES: Record<Upgrade, number[]> = {
 export const OBSTACLES = [
   { left: 1.8, right: 7.0, back: -6.7, front: -3.0 },
   { left: -0.8, right: 1.5, back: -6.7, front: -4.55 },
+  { left: 3.0, right: 6.4, back: -3.5, front: -2.45 },
   { left: 5.45, right: 9.5, back: 5.4, front: 6.7 },
 ];
 export const distance = (a: Point, b: Point) =>
@@ -55,7 +73,7 @@ export function readSave(raw: string | null): SaveData | undefined {
   if (!raw) return;
   try {
     const value = JSON.parse(raw);
-    if (!value || value.version !== 1 || !value.levels) return;
+    if (!value || (value.version !== 1 && value.version !== 2) || !value.levels) return;
     const levels = {
       basket: bounded(value.levels.basket, 3),
       oven: bounded(value.levels.oven, 3),
@@ -63,8 +81,13 @@ export function readSave(raw: string | null): SaveData | undefined {
     };
     const capacity = 18 + levels.basket * 9;
     const grain = bounded(value.grain, capacity);
+    const outputProgress = typeof value.outputProgress === "number" && Number.isFinite(value.outputProgress) ? Math.max(0, Math.min(.999, value.outputProgress)) : 0;
     return {
-      version: 1,
+      version: 2,
+      farmOwned: value.farmOwned === true,
+      workers: { server: value.workers?.server === true, farmer: value.farmOwned === true && value.workers?.farmer === true },
+      cargo: { server: value.workers?.server === true ? bounded(value.cargo?.server, 6) : 0, farmer: value.farmOwned === true && value.workers?.farmer === true ? bounded(value.cargo?.farmer, 18) : 0 },
+      outputProgress,
       levels,
       coins: bounded(value.coins, 9999999),
       served: bounded(value.served, 999999),
@@ -72,7 +95,7 @@ export function readSave(raw: string | null): SaveData | undefined {
       grain,
       pizzas: bounded(value.pizzas, capacity - grain),
       ovenWheat: bounded(value.ovenWheat, 72),
-      readyPizzas: bounded(value.readyPizzas, 24),
+      readyPizzas: bounded(value.readyPizzas, 24 - Number(outputProgress > 0)),
       bakeProgress:
         typeof value.bakeProgress === "number"
           ? Math.max(0, Math.min(1, value.bakeProgress)) || 0
@@ -90,12 +113,21 @@ export class Game {
   events: GameEvent[] = [];
   elapsed = 0;
   moving = false;
+  pizzaWorker: Worker = this.makeWorker(STATIONS.pickup);
+  farmWorker: Worker = this.makeWorker(PURCHASES.farmer);
+  customers: Customer[] = [];
+  private customerOrder = 4;
+  private arrivalCooldown = 0;
   private harvestCooldown = 0;
   private stationCooldown = 0;
 
   constructor(saved?: SaveData) {
     this.state = saved ?? {
-      version: 1,
+      version: 2,
+      farmOwned: false,
+      workers: { server: false, farmer: false },
+      cargo: { server: 0, farmer: 0 },
+      outputProgress: 0,
       coins: 0,
       served: 0,
       harvested: 0,
@@ -113,9 +145,54 @@ export class Game {
           x: FIELD.left + 0.35 + col * 0.74,
           z: FIELD.back + 0.35 + row * 0.75,
           readyAt: 0,
+          expansion: false,
         });
       }
     }
+    for (let row = 0; row < 12; row++) {
+      for (let col = 0; col < 13; col++) {
+        this.crops.push({ x: EXTRA_FIELD.left + .25 + col * .74, z: EXTRA_FIELD.back + .35 + row * .75, readyAt: 0, expansion: true });
+      }
+    }
+    this.customers = Array.from({ length: 4 }, (_, id) => ({ id, position: { x: 13.5 + id * 1.4, z: 7.65 }, heading: -Math.PI / 2, moving: false, mode: "arriving", order: id, wait: 0, compliment: "" }));
+  }
+
+  private makeWorker(position: Point): Worker {
+    return { position: { x: position.x, z: position.z }, heading: 0, moving: false, cooldown: 0, delivering: false };
+  }
+
+  reset() {
+    const fresh = new Game();
+    this.state = fresh.state; this.elapsed = 0; this.events = []; this.moving = false;
+    this.crops.forEach(crop => crop.readyAt = 0);
+    this.pizzaWorker = fresh.pizzaWorker; this.farmWorker = fresh.farmWorker;
+    this.customers = fresh.customers; this.customerOrder = 4; this.arrivalCooldown = 0;
+    this.harvestCooldown = this.stationCooldown = 0;
+  }
+
+  owns(purchase: Purchase) {
+    return purchase === "farm" ? this.state.farmOwned : this.state.workers[purchase];
+  }
+
+  purchaseReason(purchase: Purchase) {
+    if (this.owns(purchase)) return "Already part of your farm";
+    if (purchase === "farmer" && !this.state.farmOwned) return "Buy the wheat farm first";
+    if (this.state.coins < PURCHASES[purchase].price) return `Save $${PURCHASES[purchase].price - this.state.coins} more`;
+    return "";
+  }
+
+  get nearbyPurchase(): Purchase | undefined {
+    return (["server", "farm", "farmer"] as Purchase[]).find(key =>
+      !this.owns(key) && distance(this.state.position, PURCHASES[key]) < 1.65);
+  }
+
+  purchase(key: Purchase) {
+    if (this.nearbyPurchase !== key || this.purchaseReason(key)) return false;
+    this.state.coins -= PURCHASES[key].price;
+    if (key === "farm") this.state.farmOwned = true;
+    else this.state.workers[key] = true;
+    this.events.push({ type: "upgrade", ...PURCHASES[key] });
+    return true;
   }
 
   get capacity() {
@@ -153,12 +230,13 @@ export class Game {
     this.harvestCooldown = Math.max(0, this.harvestCooldown - dt);
     this.stationCooldown = Math.max(0, this.stationCooldown - dt);
     this.move(direction, dt);
+    this.updateCustomers(dt);
     const s = this.state;
 
     if (!this.full && this.harvestCooldown === 0) {
       const crop = this.crops.find(
         (crop) =>
-          crop.readyAt <= this.elapsed && distance(crop, s.position) < 1.05,
+          (!crop.expansion || s.farmOwned) && crop.readyAt <= this.elapsed && distance(crop, s.position) < 1.05,
       );
       if (crop) {
         crop.readyAt = this.elapsed + 14;
@@ -188,24 +266,118 @@ export class Game {
         s.pizzas++;
         this.stationCooldown = 0.2;
         this.events.push({ type: "pickup", ...STATIONS.pickup });
-      } else if (distance(s.position, STATIONS.counter) < 1.6 && s.pizzas > 0) {
+      } else if (distance(s.position, STATIONS.counter) < 1.6 && s.pizzas > 0 && this.serve("player")) {
         s.pizzas--;
-        s.served++;
-        s.coins += 12;
-        this.stationCooldown = 0.42;
-        this.events.push({ type: "sale", ...STATIONS.counter, amount: 12 });
-        if (s.served === 10)
-          this.events.push({ type: "milestone", ...s.position });
+        this.stationCooldown = 0.65;
       }
     }
 
-    if (s.ovenWheat >= 3 && s.readyPizzas < 24) {
+    this.updateWorkers(dt);
+    if (s.outputProgress > 0) {
+      s.outputProgress += dt / .8;
+      if (s.outputProgress >= 1) { s.outputProgress = 0; s.readyPizzas++; }
+    }
+    if (s.ovenWheat >= 3 && s.readyPizzas + Number(s.outputProgress > 0) < 24) {
       s.bakeProgress += dt / this.bakeTime;
       if (s.bakeProgress >= 1) {
         s.bakeProgress -= 1;
         s.ovenWheat -= 3;
-        s.readyPizzas++;
+        s.outputProgress = .001;
         this.events.push({ type: "baked", ...STATIONS.pickup });
+      }
+    }
+  }
+
+  private walk(actor: { position: Point; heading: number; moving: boolean }, target: Point, speed: number, dt: number) {
+    const d = distance(actor.position, target);
+    actor.moving = d > .04;
+    if (!actor.moving) { actor.position.x = target.x; actor.position.z = target.z; return true; }
+    const amount = Math.min(d, speed * dt);
+    const dx = (target.x - actor.position.x) / d, dz = (target.z - actor.position.z) / d;
+    actor.heading = Math.atan2(dx, dz);
+    actor.position.x += dx * amount; actor.position.z += dz * amount;
+    return amount === d;
+  }
+
+  private updateCustomers(dt: number) {
+    const queue = this.customers.filter(c => c.mode === "arriving" || c.mode === "waiting").sort((a, b) => a.order - b.order);
+    queue.forEach((c, i) => {
+      c.mode = this.walk(c, { x: QUEUE_FRONT.x + i * 1.25, z: QUEUE_FRONT.z }, 2.2, dt) ? "waiting" : "arriving";
+      if (!c.moving) c.heading = Math.PI;
+    });
+    this.arrivalCooldown = Math.max(0, this.arrivalCooldown - dt);
+    for (const c of this.customers) {
+      if (c.mode === "leaving") {
+        c.wait = Math.max(0, c.wait - dt);
+        if (c.wait > 0) { c.moving = false; continue; }
+        const target = c.position.z < 9.25 ? { x: c.position.x, z: 9.3 } : { x: 14, z: 9.3 };
+        if (this.walk(c, target, 2.5, dt) && c.position.x >= 14) { c.mode = "away"; c.moving = false; }
+      } else if (c.mode === "away" && this.arrivalCooldown === 0) {
+        c.position = { x: 14, z: 7.65 }; c.mode = "arriving"; c.order = this.customerOrder++; c.compliment = "";
+        this.arrivalCooldown = 2.5;
+      }
+    }
+  }
+
+  get waitingCustomers() {
+    return this.customers.filter(c => c.mode === "waiting" || c.mode === "arriving").length;
+  }
+
+  private serve(actor: "player" | "server") {
+    const customer = this.customers.filter(c => c.mode === "waiting" || c.mode === "arriving").sort((a, b) => a.order - b.order)[0];
+    if (!customer || customer.mode !== "waiting" || distance(customer.position, QUEUE_FRONT) > .1) return false;
+    customer.mode = "leaving"; customer.wait = 1.2;
+    customer.compliment = compliments[this.state.served % compliments.length];
+    this.state.served++; this.state.coins += 12;
+    this.events.push({ type: "sale", ...STATIONS.counter, amount: 12, actor, customer: customer.id });
+    if (this.state.served === 10) this.events.push({ type: "milestone", ...this.state.position });
+    return true;
+  }
+
+  private updateWorkers(dt: number) {
+    const s = this.state, server = this.pizzaWorker, farmer = this.farmWorker;
+    server.moving = farmer.moving = false;
+    server.cooldown = Math.max(0, server.cooldown - dt);
+    farmer.cooldown = Math.max(0, farmer.cooldown - dt);
+    if (s.workers.server) {
+      if (s.cargo.server > 0 && (server.delivering || s.cargo.server >= 6 || s.readyPizzas === 0)) server.delivering = true;
+      const target = server.delivering ? STATIONS.counter : STATIONS.pickup;
+      if (this.walk(server, target, 3.3, dt) && server.cooldown === 0) {
+        if (server.delivering) {
+          if (this.serve("server")) { s.cargo.server--; server.cooldown = .65; }
+          if (s.cargo.server === 0) server.delivering = false;
+        } else if (s.readyPizzas > 0 && s.cargo.server < 6) {
+          s.readyPizzas--; s.cargo.server++; server.cooldown = .18;
+          this.events.push({ type: "pickup", ...server.position, actor: "server" });
+        }
+      }
+    }
+    if (s.workers.farmer && s.farmOwned) {
+      let crop: Crop | undefined;
+      let nearest = Infinity;
+      for (const candidate of this.crops) {
+        if (!candidate.expansion || candidate.readyAt > this.elapsed) continue;
+        const d = distance(candidate, farmer.position);
+        if (d < nearest) { crop = candidate; nearest = d; }
+      }
+      if (s.cargo.farmer >= 18 || (s.cargo.farmer > 0 && !crop)) farmer.delivering = true;
+      if (farmer.delivering || s.cargo.farmer > 0 && farmer.position.x > -12) {
+        farmer.delivering = true;
+        // Leave the field through the open front path before approaching the oven.
+        const target = farmer.position.x < -1.5 && farmer.position.z < 2.6 ? { x: farmer.position.x, z: 2.8 }
+          : farmer.position.x < -1.5 ? { x: -1.4, z: 2.8 } : STATIONS.delivery;
+        if (this.walk(farmer, target, 3.6, dt) && distance(farmer.position, STATIONS.delivery) < .1 && farmer.cooldown === 0 && s.ovenWheat < 72) {
+          s.cargo.farmer--; s.ovenWheat++; farmer.cooldown = .1;
+          this.events.push({ type: "deposit", ...farmer.position, actor: "farmer" });
+          if (s.cargo.farmer === 0) farmer.delivering = false;
+        }
+      } else if (crop) {
+        const target = farmer.position.x > -12 && farmer.position.z < 2.6 ? { x: -1.4, z: 2.8 }
+          : farmer.position.x > -12 ? { x: -14, z: 2.8 } : crop;
+        if (this.walk(farmer, target, 3.6, dt) && distance(farmer.position, crop) < .15 && farmer.cooldown === 0) {
+          crop.readyAt = this.elapsed + 14; s.cargo.farmer++; s.harvested++; farmer.cooldown = .2;
+          this.events.push({ type: "harvest", x: crop.x, z: crop.z, actor: "farmer" });
+        }
       }
     }
   }
@@ -224,9 +396,9 @@ export class Game {
           z > b.back - 0.32 &&
           z < b.front + 0.32,
       );
-    const x = Math.max(-12.1, Math.min(12.1, position.x + input.x * amount));
+    const x = Math.max(-24.1, Math.min(12.1, position.x + input.x * amount));
     if (allowed(x, position.z)) position.x = x;
-    const z = Math.max(-8.1, Math.min(8.1, position.z + input.z * amount));
+    const z = Math.max(-8.1, Math.min(9.2, position.z + input.z * amount));
     if (allowed(position.x, z)) position.z = z;
   }
 
@@ -254,17 +426,28 @@ export class Game {
         target: STATIONS.delivery,
         step: 1,
       };
-    if (s.readyPizzas > 0 && !this.full)
+    const next = (["server", "farm", "farmer"] as Purchase[]).find(key => !this.owns(key) && !this.purchaseReason(key));
+    if (next && s.grain === 0) return {
+      title: PURCHASES[next].title,
+      detail: "Walk to its sign, then buy with your coins.",
+      target: PURCHASES[next], step: 4,
+    };
+    if (s.workers.server && s.workers.farmer && s.grain === 0) return {
+      title: "Your little team has it covered",
+      detail: "Help in the fields or save up for oven upgrades.",
+      target: STATIONS.delivery, step: 4,
+    };
+    if (s.readyPizzas > 0 && !this.full && !s.workers.server)
       return {
         title: "Hot out of the oven",
         detail: "Collect your pizzas at the green pad.",
         target: STATIONS.pickup,
         step: 2,
       };
-    if (s.ovenWheat >= 3 && s.grain === 0)
+    if ((s.ovenWheat >= 3 || s.outputProgress > 0) && s.grain === 0)
       return {
         title: "Good things take a little time",
-        detail: "Your pizza is baking. Harvest more or wait by the oven.",
+        detail: s.workers.server ? "Your pizza worker will serve it. Keep the oven supplied." : "Your pizza is baking. Harvest more or wait by the oven.",
         target: STATIONS.pickup,
         step: 2,
       };

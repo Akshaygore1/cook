@@ -27,3 +27,13 @@ Interaction thesis: a camera transition from the opening diorama into play; spri
 Keyboard movement with WASD or arrow keys; touch joystick on phones. Proximity triggers harvesting, unloading, pickup, and selling automatically. Pause and sound controls remain accessible.
 
 Verify a complete harvest → unload → bake → collect → sell cycle, insufficient-funds handling, upgrades, save/load, pause, and desktop/mobile layouts. No copied game assets are needed.
+
+## Open-world expansion
+
+The next stage extends the same miniature world along an open walking lane. The new field is visible before purchase, with a sign and coin price. Entering a ring reveals an explicit Buy/Hire button; E is the keyboard shortcut. Proximity alone never spends coins, and purchases require sufficient funds. The recommended progression is pizza worker → wheat farm → farm worker, but farm ownership is not gated by the first milestone or the pizza worker.
+
+The teal pizza worker collects and carries up to six pizzas to the counter. The green farm worker with a straw hat harvests the purchased field and delivers up to 18 wheat along the front lane. Their jobs and carrying inventories remain separate. Purchases are permanent, and worker cargo survives reloads. Neither worker produces while paused or offline.
+
+Four customers cycle through arrival, queueing, receiving a pizza, departing with a compliment, and returning. Only a customer at the front of the queue can be served. Waiting has no penalty. The decorative looping car and outdoor dining furniture are removed. Finished pizzas visibly slide from the oven mouth down a short ramp before becoming available at pickup.
+
+World labels use fixed widths and composited, device-pixel-aligned anchors after camera rendering. The oven progress fill updates each rendered frame; HUD backgrounds do not blur scenery moving behind them. Reduced-motion mode suppresses limb sway, smoke, celebratory particles, item flights, and decorative pulses while retaining readable production states.
